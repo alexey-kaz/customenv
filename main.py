@@ -59,9 +59,9 @@ def setup_and_train():
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": 50
+            "training_iteration": 30
         },
-        'checkpoint_freq': 10,
+        'checkpoint_freq': 5,
         "config": config,
     }
 
