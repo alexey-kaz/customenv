@@ -14,15 +14,8 @@ def gen_jobs(n_ag, max_time_steps, max_run_time):
     df = pd.DataFrame({'time': c1, 'snd': c2, 'rcv': c3, 'run_time': c4, 'life_time': c5})
     df = df.sort_values(by=['time', 'rcv']).drop_duplicates(subset=['time', 'snd', 'rcv'], ignore_index=True)
     df['queued'] = False
-    df['running'] = False
+    df['active'] = False
     return df
-
-
-def gen_relations(n_ag, min_route, max_route):
-    b = np.random.randint(min_route, max_route, size=(n_ag, n_ag))
-    res = (b + b.T) // 2
-    np.fill_diagonal(res, 0)
-    return res
 
 
 class JSSPEnv(MultiAgentEnv):
@@ -30,61 +23,37 @@ class JSSPEnv(MultiAgentEnv):
         self.num_steps = 400
         self.num_agents = 5
         self.jobs_df = None
-        # self.DDDDDDDDDELETE_THISSSSSSSSS = None
         self.relations = None
         self.time = 0
+        self.is_JSSP = False
         low = np.array([0, 0], dtype=np.float)
         high = np.array([1, 1], dtype=np.float)
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
-        # gym.spaces.Box(low=0, high=self.num_agents, shape=(1,))
         self.action_space = gym.spaces.Discrete(self.num_agents)
 
+    def gen_relations(self, min_route, max_route):
+        if not self.is_JSSP:
+            b = np.random.randint(min_route, max_route, size=(self.num_agents, self.num_agents))
+            res = (b + b.T) // 2
+            np.fill_diagonal(res, 0)
+        else:
+            res = np.full((self.num_agents, self.num_agents), 0)
+        return res
+
     def send_task(self, job, rcv):
-        # tmp = [job.time + self.relations[rcv][job.rcv], job.rcv, rcv, False, job.run_time, job.life_time, False]
-        # tmp = pd.DataFrame({'time': job.time + self.relations[rcv][job.rcv],
-        #                     'snd': job.rcv,
-        #                     'rcv': rcv,
-        #                     'run_time': job.run_time,
-        #                     'life_time': job.life_time,
-        #                     'done': False,
-        #                     'queued': True,
-        #                     'running': False})
-        # # print(job.values, tmp.values)
-        # self.jobs_df = pd.concat([self.jobs_df, tmp], ignore_index=True)
-        # self.DDDDDDDDDELETE_THISSSSSSSSS = pd.concat([self.DDDDDDDDDELETE_THISSSSSSSSS, tmp], ignore_index=True)
-        # self.jobs_df.loc[len(self.jobs_df)] = tmp
-        # print('send job\n', job, '\n')
-        # print('send\n', self.jobs_df.loc[(self.jobs_df.time == job.time.values[0])
-        #                        & (self.jobs_df.snd == job.snd.values[0])
-        #                        & (self.jobs_df.rcv == job.rcv.values[0]), 'time'], '\n')
         row = self.jobs_df.loc[(self.jobs_df.time == job.time.values[0])
                                & (self.jobs_df.snd == job.snd.values[0])
                                & (self.jobs_df.rcv == job.rcv.values[0]), 'time'].index[0]
         col_time = self.jobs_df.columns.get_loc('time')
         col_queued = self.jobs_df.columns.get_loc('queued')
-        # print(self.jobs_df.shape)
-        # print(row)
-        # print(self.jobs_df.shape)
-        # print('self.jobs_df.iloc[row, col_time]', self.jobs_df.iloc[row, col_time])
-        # print('job.time.values[0]', job.time.values[0])
-        # print('self.relations[rcv]', self.relations[rcv])
-        # print('self.relations[rcv][job.rcv]', self.relations[rcv][job.rcv.values[0]])
-        self.jobs_df.iloc[row, col_time] = job.time.values[0] + self.relations[rcv][job.rcv.values[0]]
-        self.jobs_df.iloc[row, col_queued] = False
-
-        # self.jobs_df.drop(self.jobs_df.index[(self.jobs_df.time == job.time.values[0])
-        #                                      & (self.jobs_df.snd == job.snd.values[0])
-        #                                      & (self.jobs_df.rcv == job.rcv.values[0])], inplace=True)
+        self.jobs_df.iloc[row, col_time] = job.time.values[0] + self.relations[rcv][job.rcv.values[0]]  # new time
+        self.jobs_df.iloc[row, col_queued] = False  # not yet in queue after being sent
 
     def reset(self):
         if not self.time:
             print('reset jobs_df & relations')
             self.jobs_df = gen_jobs(self.num_agents, self.num_steps, 5)
-            self.relations = gen_relations(self.num_agents, 1, 4)
-            # print('self.relations.\n', self.relations)
-        # self.DDDDDDDDDELETE_THISSSSSSSSS = pd.DataFrame(columns=self.jobs_df.columns)
-        # print('reset self.DDDDDDDDDELETE_THISSSSSSSSS\n', self.DDDDDDDDDELETE_THISSSSSSSSS)
-        # self.time = -1
+            self.relations = self.gen_relations(1, 4)
         obs = {}
         for i in range(self.num_agents):
             obs[i] = np.asarray([0., 0.])
@@ -92,108 +61,57 @@ class JSSPEnv(MultiAgentEnv):
 
     def step(self, action_dict):
         run_time_col_index = self.jobs_df.columns.get_loc('run_time')
-        time_col_index = self.jobs_df.columns.get_loc('time')
         queued_col_index = self.jobs_df.columns.get_loc('queued')
-        running_col_index = self.jobs_df.columns.get_loc('running')
-        # max_time_step = 0
-        # print(self.time)
+        active_col_index = self.jobs_df.columns.get_loc('active')
+        life_time_col_index = self.jobs_df.columns.get_loc('life_time')
         print('timestep', self.time)
         obs, rew, done, info = {}, {}, {}, {}
         num_jobs, total_run_time = [], []
-        self.jobs_df.loc[(self.jobs_df.time == self.time), 'queued'] = True
-        # print(self.jobs_df.loc[(self.jobs_df.queued == True) & (self.jobs_df.time == self.time), 'time'].index[0])
-        # self.jobs_df.iloc[self.jobs_df.loc[(self.jobs_df.queued == True) & (self.jobs_df.time == self.time),
-        #                                    'running'].index[0], running_col_index] = True
-        # self.DDDDDDDDDELETE_THISSSSSSSSS = pd.concat([self.DDDDDDDDDELETE_THISSSSSSSSS,
-        #                                  self.jobs_df[self.jobs_df.time == self.time]],
-        #                                 ignore_index=True).sort_values(['time', 'rcv'],
-        #                                                                ascending=False).drop_duplicates()
-        # -1 to all first jobs runtimes in all queues
-        # print('loc_obs before\n', self.DDDDDDDDDELETE_THISSSSSSSSS.columns, '\n', self.DDDDDDDDDELETE_THISSSSSSSSS)
+        self.jobs_df.loc[
+            (self.jobs_df.time == self.time), 'queued'] = True  # all new jobs from this time step are labeled as queued
         for i in range(self.num_agents):
             reward = 0
-            # loc_obs = self.jobs_df[self.jobs_df.rcv == i]
-            # for non-complete graph
-            # loc_obs = [self.obs[x] for x in range(self.num_agents) if self.relations[x][i] or x == i]
-            # add tasks of this time step and agent
-            # self.obs[i] = self.jobs_df[(self.jobs_df.time <= self.time) & (self.jobs_df.rcv == i)]
-            # print(loc_obs[(loc_obs.rcv == i) & (loc_obs.time == self.time)].empty)
-            if not self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].empty:
-                # print('IDIOT queued 1: time {}, i {}\n'.format(self.time, i), self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)])
-                # print('for shape\n', self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)])
-                if self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].shape[0] > 1:
-                    self.jobs_df.iloc[self.jobs_df.loc[(self.jobs_df.queued == True) &
-                                                       (self.jobs_df.rcv == i) & (self.jobs_df.time == self.time),
-                                                       'run_time'].index[1:], run_time_col_index] = \
-                        self.jobs_df.iloc[self.jobs_df.loc[(self.jobs_df.queued == True) &
-                                                           (self.jobs_df.rcv == i) & (self.jobs_df.time == self.time),
-                                                           'run_time'].index[1:], run_time_col_index].apply(lambda x: x + 1)
-                    self.jobs_df.iloc[self.jobs_df.loc[(self.jobs_df.queued == True) &
-                                                       (self.jobs_df.rcv == i) & (self.jobs_df.time == self.time),
-                                                       'time'].index[1:], queued_col_index] = False
-                r1 = self.jobs_df[(self.jobs_df.queued == True) & (self.jobs_df.rcv == i)].index[0]
-                # print('r1', r1)
-                self.jobs_df.iloc[r1, running_col_index] = True
-                # self.jobs_df.loc[(self.jobs_df.queued == True) & (self.jobs_df.time == self.time), 'running'] = True
-                # self.jobs_df.iloc[self.jobs_df.loc[(self.jobs_df.queued == True) & (self.jobs_df.time == self.time),
-                #                                    'running'], running_col_index] = True
-                    # print('step in')
-                # print('empty', self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].empty)
-                # print('IDIOT running: time {}, i {}\n'.format(self.time, i), self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.running == True)])
-                # print('IDIOT queued 2: time {}, i {}\n'.format(self.time, i), self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)])
-                if not self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.running == True)].empty:
-                    if self.jobs_df.loc[(self.jobs_df.running == True) & (self.jobs_df.rcv == i), 'run_time'].index[0] == 0:
-                        # print('YAY I AM A GOOD BOY')
-                        reward += 10
-                        self.jobs_df.drop(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.running == True)
-                                          & (self.jobs_df.run_time == 0)].index, inplace=True)
-                if not self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].empty:
-                    if action_dict[i] == i:  # append action is the same as agent number
-                        tmp = np.sum(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].run_time[:-1])
-                        # print('action_dict[{}] == {}'.format(i, i))
-                        reward += -20 * (tmp > self.jobs_df[(self.jobs_df.rcv == i)
-                                                            & (self.jobs_df.queued == True)].life_time.values[-1])
-                        # np.append(self.obs[i], self.jobs_df[(self.jobs_df.time == self.time) & (self.jobs_df.rcv == i)])
-                    elif not self.jobs_df[(self.jobs_df.time == self.time) & (self.jobs_df.queued == True)
-                                                    & (self.jobs_df.rcv == i)].empty:  # every other number N means "send to N"
-                        # print(action_dict[i])
-                        # print(self.jobs_df[self.jobs_df.rcv == action_dict[i]])
-                        tmp = np.sum(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].run_time)
-                        tmp += self.jobs_df[(self.jobs_df.rcv == i)
-                                                 & (self.jobs_df.queued == True)].run_time.values[0]
-                        tmp += self.relations[i][action_dict[i]]
-                        # max_time_step = max(max_time_step, self.relations[i][action_dict[i] - 1])
-                        # print(loc_obs[loc_obs.rcv == i].life_time.values)
-                        reward += -20 * (tmp > self.jobs_df[(self.jobs_df.rcv == i)
-                                                                 & (self.jobs_df.queued == True)].life_time.values[0])
-                        self.send_task(self.jobs_df[(self.jobs_df.time == self.time) & (self.jobs_df.queued == True)
-                                                    & (self.jobs_df.rcv == i)], action_dict[i])
-                # loc_obs = self.jobs_df[(self.jobs_df.time <= self.time) & (self.jobs_df.rcv == i)]
+            # for complete graph
+            if not self.jobs_df[(self.jobs_df.rcv == i) & (
+                    self.jobs_df.queued == True)].empty:  # if there are queued jobs on i-th agent
+                if self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].shape[0] > 1:  # if several jobs were sent to i-th agent
+                    # leave only the first one in queue, every other task is moved to be dealt with on another time step
+                    tmp_queued_time_not_first = self.jobs_df.loc[(self.jobs_df.queued == True) & (self.jobs_df.rcv == i)
+                                                                 & (self.jobs_df.time == self.time), 'run_time'].index[1:]
+                    self.jobs_df.iloc[tmp_queued_time_not_first, run_time_col_index] = \
+                        self.jobs_df.iloc[tmp_queued_time_not_first, run_time_col_index].apply(lambda x: x + 1)
+                    self.jobs_df.iloc[tmp_queued_time_not_first, queued_col_index] = False
+                tmp_queued_time_first = self.jobs_df[(self.jobs_df.queued == True) & (self.jobs_df.rcv == i)].index[0]  # get the first actually queued job
+                self.jobs_df.iloc[tmp_queued_time_first, active_col_index] = True  # and make it active
+                tmp_active_runtime = self.jobs_df[(self.jobs_df.active == True) & (self.jobs_df.rcv == i)
+                                                  & (self.jobs_df.run_time == 0)]  # finished (runtime == 0) active job on i-th agent
+                if not tmp_active_runtime.empty:  # if there are active finished jobs on i-th agent
+                    reward += 50
+                    self.jobs_df.drop(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.active == True)
+                                                   & (self.jobs_df.run_time == 0)].index[0], inplace=True)  # delete finished job from dataframe
+                tmp_queued_i = self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)]
+                tmp_queued_other = self.jobs_df[(self.jobs_df.rcv == action_dict[i]) & (self.jobs_df.queued == True)]
+                if not tmp_queued_i.empty:  # if there are queued jobs on i-th agent
+                    if action_dict[i] == i:  # append action to its own queue
+                        tmp_reward = np.sum(tmp_queued_i.run_time[:-1])  # all queued jobs run_times (except for the new one)
+                        reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])  # negative reward if lifetime ends before all jobs in queue are done
+                    elif not tmp_queued_other.empty:  # every other number N means "send to N"
+                        tmp_reward = np.sum(tmp_queued_other.run_time)  # all runtimes on new agent
+                        tmp_reward += tmp_queued_i.run_time.values[-1]  # new job's runtime
+                        tmp_reward += self.relations[i][action_dict[i]]  # time to send between agents
+                        reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])  # negative reward if lifetime ends before job is received and all jobs in new queue are done
+                        self.send_task(tmp_queued_i, action_dict[i])  # send from i-th agent to chosen by action
             rew[i], done[i], info[i] = reward, True, {}
-
-            # num_jobs.append(loc_obs[loc_obs.rcv == i].shape[0])
-            # print('loc_obs[loc_obs.rcv == {}].run_time.values'.format(i), loc_obs[loc_obs.rcv == {}].run_time.values)
-            # total_run_time.append(np.sum(loc_obs[loc_obs.rcv == {}].run_time.values))
-
-            # print('num_jobs, total_run_time: {}, {}'.format(num_jobs, total_run_time))
-            rew[i], done[i], info[i] = reward, True, {}
-            # print('done {}\n'.format(i))
-        # print('self.DDDDDDDDDELETE_THISSSSSSSSS after\n', self.DDDDDDDDDELETE_THISSSSSSSSS)
         for i in range(self.num_agents):
-            if self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].empty:
+            tmp_queued_i = self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)]
+            if not tmp_queued_i.empty:
+                num_jobs.append(tmp_queued_i.shape[0])  # number of queued jobs
+                total_run_time.append(np.sum(tmp_queued_i.run_time.values))  # runtimes of all queued jobs
+            else:
                 num_jobs.append(0.)
                 total_run_time.append(0.)
-            else:
-                # print('loc_obs[loc_obs.rcv == {}].shape[0]'.format(i), loc_obs[loc_obs.rcv == i].shape[0])
-                num_jobs.append(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].shape[0])
-                # print('self.DDDDDDDDDELETE_THISSSSSSSSS[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == {}].run_time.values'.format(i),
-                #       self.DDDDDDDDDELETE_THISSSSSSSSS[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i].run_time.values)
-                total_run_time.append(
-                    np.sum(self.jobs_df[(self.jobs_df.rcv == i) & (self.jobs_df.queued == True)].run_time.values))
-        # print('step out')
-        # print("time: {}".format(self.time))
-        # print('result self.DDDDDDDDDELETE_THISSSSSSSSS:\n', self.DDDDDDDDDELETE_THISSSSSSSSS)
-        # print('num_jobs, total_run_time: {}, {}'.format(num_jobs, total_run_time))
+
+        # normalize from 0 to 1
         if np.max(num_jobs) != 0:
             result_num_jobs = (num_jobs - np.min(num_jobs)) / np.ptp(num_jobs)
         else:
@@ -202,31 +120,19 @@ class JSSPEnv(MultiAgentEnv):
             result_total_run_time = (total_run_time - np.min(total_run_time)) / np.ptp(total_run_time)
         else:
             result_total_run_time = [0.] * self.num_agents
-        # print('result_num_jobs, result_total_run_time: {}, {}'.format(result_num_jobs, result_total_run_time))
-        # print(result_num_jobs, result_total_run_time)
-        obs = {i: np.asarray(j) for i, j in enumerate(zip(result_num_jobs, result_total_run_time))}
+
+        obs = {i: np.asarray(j) for i, j in enumerate(zip(result_num_jobs, result_total_run_time))}  # observation (visible state) encoding
 
         done["__all__"] = True
-        # print('obs, rew, done, info: {}, {}, {}, {}'.format(obs, rew, done, info))
-        print('rew', rew)
-        # col_index = self.DDDDDDDDDELETE_THISSSSSSSSS.columns.get_loc('run_time')
-        for i in range(5):
-        #     print('empty', self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].empty)
-        #     if not self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].empty:
-        #         print('all', self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'])
-        #         print('values', self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].values)
-        #         print('index[0]', self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].index[0])
-        #         print('iloc', self.DDDDDDDDDELETE_THISSSSSSSSS.iloc[self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].index[0]])
-        #         print('iloc column', self.DDDDDDDDDELETE_THISSSSSSSSS.iloc[self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].index[0], col_index])
-        #         self.DDDDDDDDDELETE_THISSSSSSSSS.iloc[self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].index[0], col_index] \
-        #             = self.DDDDDDDDDELETE_THISSSSSSSSS.loc[self.DDDDDDDDDELETE_THISSSSSSSSS.rcv == i, 'run_time'].values[0] - 1
-            if not self.jobs_df.loc[self.jobs_df.rcv == i, 'run_time'].empty:
-                self.jobs_df.iloc[self.jobs_df.loc[self.jobs_df.rcv == i, 'run_time'].index[0], run_time_col_index] \
-                    = self.jobs_df.loc[self.jobs_df.rcv == i, 'run_time'].values[0] - 1
-        self.jobs_df['life_time'] = self.jobs_df['life_time'].apply(lambda x: x - 1)
-        self.jobs_df.drop(self.jobs_df[(self.jobs_df.queued == True) & (self.jobs_df.run_time < 0)].index,
-                          inplace=True)
+        for i in range(self.num_agents):
+            tmp_active_runtime = self.jobs_df.loc[(self.jobs_df.rcv == i) & (self.jobs_df.active == True), 'run_time']  # if there are active jobs on i-th agent
+            if not tmp_active_runtime.empty:
+                self.jobs_df.iloc[tmp_active_runtime.index[0], run_time_col_index] = tmp_active_runtime.values[0] - 1  # runtime -1
+
+        tmp_queued_lifetime = self.jobs_df.loc[self.jobs_df.queued == True, 'life_time'].index
+        self.jobs_df.iloc[tmp_queued_lifetime, life_time_col_index] = \
+            self.jobs_df.iloc[tmp_queued_lifetime, life_time_col_index].apply(lambda x: x - 1)  # life_time of all queued jobs -1
+        self.jobs_df.drop(self.jobs_df[self.jobs_df.life_time < 0].index, inplace=True)
         self.jobs_df.reset_index(drop=True, inplace=True)
         self.time = (self.time + 1) % self.num_steps
-        # print(self.observation_space)
         return obs, rew, done, info
