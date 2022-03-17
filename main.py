@@ -41,9 +41,15 @@ def setup_and_train():
 
     # Define configuration with hyperparam and training details
     config = {
+        # 'num_training_iterations': 20,
         "log_level": "INFO",
         "num_sgd_iter": 10,
+        "sgd_minibatch_size": 64,
         "train_batch_size": 400,
+        # "rollout_fragment_length": 100,
+        'horizon':  20,
+        'no_done_at_end': False,
+        'soft_horizon': True,
         "lr": 5e-3,
         "model": {"fcnet_hiddens": [8, 8]},
         "multiagent": {
