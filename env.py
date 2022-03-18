@@ -18,14 +18,14 @@ def gen_jobs(n_ag, max_time_steps, max_run_time):
     return df
 
 
-class JSSPEnv(MultiAgentEnv):
+class Diploma_Env(MultiAgentEnv):
     def __init__(self, return_agent_actions=False, part=False):
-        self.num_steps = 400
+        self.num_steps = 200
         self.num_agents = 5
         self.jobs_df = None
         self.relations = None
         self.time = 0
-        self.is_JSSP = False
+        self.is_JSSP = False  # make True for all send times between agents to be 0
         low = np.array([0, 0], dtype=np.float)
         high = np.array([1, 1], dtype=np.float)
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)

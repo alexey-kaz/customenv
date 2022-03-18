@@ -8,7 +8,7 @@ from ray.rllib.utils import try_import_tf
 from ray.tune.registry import register_env
 
 # Import environment definition
-from env import JSSPEnv
+from env import Diploma_Env
 
 tf = try_import_tf()
 
@@ -17,10 +17,10 @@ tf = try_import_tf()
 def setup_and_train():
     # Create a single environment and register it
     def env_creator(_):
-        return JSSPEnv()
+        return Diploma_Env()
 
-    multi_env = JSSPEnv()
-    env_name = "JSSPEnv"
+    multi_env = Diploma_Env()
+    env_name = "Diploma_Env"
     register_env(env_name, env_creator)
 
     # Get environment obs, action spaces and number of agents
@@ -45,7 +45,7 @@ def setup_and_train():
         "log_level": "INFO",
         "num_sgd_iter": 10,
         "sgd_minibatch_size": 64,
-        "train_batch_size": 400,
+        "train_batch_size": 200,
         # "rollout_fragment_length": 100,
         'horizon':  20,
         'no_done_at_end': False,
@@ -57,7 +57,7 @@ def setup_and_train():
             "policy_mapping_fn": policy_mapping_fn,
         },
         "simple_optimizer": True,
-        "env": "JSSPEnv"}
+        "env": "Diploma_Env"}
 
     # Define experiment details
     exp_name = 'my_exp'
