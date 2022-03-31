@@ -11,6 +11,8 @@ from ray.tune.registry import register_env
 from env import Diploma_Env
 
 tf = try_import_tf()
+num_steps = 200
+n_agents = 5
 
 
 # Driver code for training
@@ -19,7 +21,7 @@ def setup_and_train():
     def env_creator(_):
         return Diploma_Env()
 
-    multi_env = Diploma_Env()
+    multi_env = Diploma_Env(num_steps=num_steps, num_agents=n_agents)
     env_name = "Diploma_Env"
     register_env(env_name, env_creator)
 
@@ -43,21 +45,21 @@ def setup_and_train():
     config = {
         # 'num_training_iterations': 20,
         "log_level": "INFO",
+        "num_workers": 1,
         "num_sgd_iter": 10,
         "sgd_minibatch_size": 64,
-        "train_batch_size": 200,
-        # "rollout_fragment_length": 100,
-        'horizon':  20,
-        'no_done_at_end': False,
-        'soft_horizon': True,
-        "lr": 5e-3,
-        "model": {"fcnet_hiddens": [8, 8]},
+        "train_batch_size": num_steps,
+        "rollout_fragment_length": num_steps,
+        "lr": 3e-4,
+        "model": {"fcnet_hiddens": [256, 256],
+                  "fcnet_activation": "tanh"},
         "multiagent": {
             "policies": policy_graphs,
             "policy_mapping_fn": policy_mapping_fn,
         },
         "simple_optimizer": True,
-        "env": "Diploma_Env"}
+        "env": "Diploma_Env"
+    }
 
     # Define experiment details
     exp_name = 'my_exp'
@@ -67,7 +69,7 @@ def setup_and_train():
         "stop": {
             "training_iteration": 50
         },
-        'checkpoint_freq': 5,
+        'checkpoint_freq': 10,
         "config": config,
     }
 
