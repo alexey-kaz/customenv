@@ -11,7 +11,7 @@ from ray.tune.registry import register_env
 from env import Diploma_Env
 
 tf = try_import_tf()
-num_steps = 200
+num_steps = 400
 n_agents = 5
 
 
@@ -44,19 +44,32 @@ def setup_and_train():
     # Define configuration with hyperparam and training details
     config = {
         # 'num_training_iterations': 20,
+        "use_critic": True,
+        "lambda": 1.0,
+        "kl_coeff": 0.2,
+        "shuffle_sequences": True,
+
         "log_level": "INFO",
         "num_workers": 1,
-        "num_sgd_iter": 10,
-        "sgd_minibatch_size": 64,
+        "num_sgd_iter": 30,
+        "sgd_minibatch_size": 128,
         "train_batch_size": num_steps,
-        "rollout_fragment_length": num_steps,
-        "lr": 3e-4,
-        "model": {"fcnet_hiddens": [256, 256],
-                  "fcnet_activation": "tanh"},
+        "rollout_fragment_length": num_steps / 20,
+        "lr": 5e-5,
+
+        "vf_loss_coeff": 1.0,
+        "model": {
+            "vf_share_layers": False,
+            "fcnet_hiddens": [256, 256],
+            "fcnet_activation": "tanh"},
         "multiagent": {
             "policies": policy_graphs,
             "policy_mapping_fn": policy_mapping_fn,
         },
+
+        "clip_param": 0.3,
+        "vf_clip_param": 5.0,
+
         "simple_optimizer": True,
         "env": "Diploma_Env"
     }
