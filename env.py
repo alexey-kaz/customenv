@@ -4,8 +4,6 @@ import pandas as pd
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
-np.seterr(divide='ignore', invalid='ignore')
-
 
 class Diploma_Env(MultiAgentEnv):
     def __init__(self, num_steps=200, num_agents=5, is_JSSP=False, return_agent_actions=False, part=False):
@@ -22,8 +20,8 @@ class Diploma_Env(MultiAgentEnv):
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
         self.exp_num = -1
-        self.all_cpu_usage = 0
-        self.all_queue_usage = 0
+        self.all_cpu_usage = None
+        self.all_queue_usage = None
 
     def gen_relations(self, min_route, max_route):
         if not self.is_JSSP:
@@ -69,8 +67,8 @@ class Diploma_Env(MultiAgentEnv):
             self.relations = self.gen_relations(1, 4)
             self.cd_info = self.gen_cd_info(5, 15, 20, 50)
             self.exp_num += 1
-            self.all_cpu_usage = 0
-            self.all_queue_usage = 0
+            self.all_cpu_usage = {i: 0 for i in range(self.num_agents)}
+            self.all_queue_usage = {i: 0 for i in range(self.num_agents)}
             print('Experiment', self.exp_num)
         obs = {}
         for i in range(self.num_agents):
@@ -82,7 +80,7 @@ class Diploma_Env(MultiAgentEnv):
         queued_col_index = self.tasks_df.columns.get_loc('queued')
         active_col_index = self.tasks_df.columns.get_loc('active')
         # print('timestep', self.time)
-        obs, rew, done, info = {}, {}, {}, {}
+        obs, rew, done, info = {}, {i: 0 for i in range(self.num_agents)}, {}, {}
         num_tasks, tasks_ratio, total_run_time = [], [], []
         # all new tasks from this time step are labeled as queued
         self.tasks_df.loc[(self.tasks_df.time == self.time), 'queued'] = True
@@ -91,7 +89,6 @@ class Diploma_Env(MultiAgentEnv):
             self.tasks_df.drop(self.tasks_df[(self.tasks_df.queued == True)
                                              & (self.tasks_df.time == self.time)], inplace=True)
         for i in range(self.num_agents):
-            reward = 0
             # if there are queued tasks on i-th agent
             if not self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)].empty:
                 # if several tasks were sent to i-th agent
@@ -118,44 +115,80 @@ class Diploma_Env(MultiAgentEnv):
                 if not tmp_active_runtime.empty:
                     # increase available queue space of i-th agent
                     self.cd_info.queue_avail[i] += 1
-                    reward += 100
+
+                    # # reward for finished task
+                    # reward += 100
+
                     # delete finished task from dataframe
                     self.tasks_df.drop(self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.active == True)
                                                      & (self.tasks_df.run_time == 0)].index[0], inplace=True)
+
                 tmp_queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
                 tmp_queued_other = self.tasks_df[(self.tasks_df.rcv == action_dict[i]) & (self.tasks_df.queued == True)]
                 # if there are queued tasks on i-th agent
                 if not tmp_queued_i.empty:
                     # append action to its own queue
-                    if action_dict[i] == i:
+                    if self.cd_info.cpu_avail[action_dict[i]] < tmp_queued_i.cpu_usage.values[0]:
+                        rew[i] -= 10
+                    elif action_dict[i] == i:
                         # reduce available queue space of i-th agent
                         self.cd_info.queue_avail[i] -= 1
-                        # all queued tasks run_times (except for the new one)
-                        tmp_reward = np.sum(tmp_queued_i.run_time[:-1])
-                        # negative reward if lifetime ends before all tasks in queue are done
-                        reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])
+
+                        # add this task's cpu to i-th agent
+                        self.all_cpu_usage[i] += tmp_queued_i.cpu_usage.values[0]
+                        # add this task to queue usage of i-th agent
+                        self.all_queue_usage[i] += 1
+
+                        # # all queued tasks run_times (except for the new one)
+                        # tmp_reward = np.sum(tmp_queued_i.run_time[:-1])
+                        # # negative reward if lifetime ends before all tasks in queue are done
+                        # reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])
+
                     # every other number N means "send to N"
-                    elif not tmp_queued_other.empty:
+                    else:
                         # reduce available queue space of receiving agent
                         self.cd_info.queue_avail[action_dict[i]] -= 1
-                        # all runtimes on new agent
-                        tmp_reward = np.sum(tmp_queued_other.run_time)
-                        # new task's runtime
-                        tmp_reward += tmp_queued_i.run_time.values[-1]
-                        # time to send between agents
-                        tmp_reward += self.relations[i][action_dict[i]]
-                        # negative reward if lifetime ends before task is received and all tasks in new queue are done
-                        reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])
+
+                        # add this task's cpu to i-th agent
+                        self.all_cpu_usage[action_dict[i]] += tmp_queued_i.cpu_usage.values[0]
+                        # add this task to queue usage of i-th agent
+                        self.all_queue_usage[action_dict[i]] += 1
+
+                        # # all runtimes on new agent
+                        # tmp_reward = np.sum(tmp_queued_other.run_time)
+                        # # new task's runtime
+                        # tmp_reward += tmp_queued_i.run_time.values[-1]
+                        # # time to send between agents
+                        # tmp_reward += self.relations[i][action_dict[i]]
+                        # # negative reward if lifetime ends before task is received and all tasks in new queue are done
+                        # reward += -20 * (tmp_reward > tmp_queued_i.life_time.values[-1])
+
                         # send from i-th agent to chosen by action
                         self.send_task(tmp_queued_i, action_dict[i])
-            rew[i], done[i], info[i] = reward, True, {}
+            done[i], info[i] = True, {}
+            # rew[i], done[i], info[i] = reward, True, {}
+
+        alpha, beta, gamma = 0.5, 0.5, 0.5
+        delta = sum(self.all_cpu_usage.values()) / (self.time + 1)
+        theta = sum(self.all_queue_usage.values()) / (self.time + 1)
+        for i in range(self.num_agents):
+            cpu_avg_i = self.all_cpu_usage[i] / (self.time + 1)
+            queue_avg_i = self.all_queue_usage[i] / (self.time + 1)
+            rew[i] += alpha * cpu_avg_i / self.cd_info.cpu_avail[i]
+            rew[i] += gamma * (cpu_avg_i / self.cd_info.cpu_avail[i] - delta) ** 2
+            if self.cd_info.queue_avail[i]:
+                rew[i] += beta * queue_avg_i / self.cd_info.queue_avail[i]
+                rew[i] += gamma * (queue_avg_i / self.cd_info.queue_avail[i] - theta) ** 2
+
         for i in range(self.num_agents):
             tmp_queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
             if not tmp_queued_i.empty:
                 # number of queued tasks
                 num_tasks.append(tmp_queued_i.shape[0])
                 # ratio of queued tasks to max_queue
-                tasks_ratio.append(tmp_queued_i.shape[0] / self.cd_info.queue_avail[i])
+                tmp_task_ratio = tmp_queued_i.shape[0] / self.cd_info.queue_avail[i] if self.cd_info.queue_avail[
+                    i] else 0
+                tasks_ratio.append(tmp_task_ratio)
                 # runtimes of all queued tasks
                 total_run_time.append(np.sum(tmp_queued_i.run_time.values))
             else:
