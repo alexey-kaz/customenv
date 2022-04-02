@@ -11,7 +11,7 @@ from ray.tune.registry import register_env
 from env import Diploma_Env
 
 tf = try_import_tf()
-num_steps = 400
+num_steps = 1000
 n_agents = 5
 
 
@@ -19,9 +19,9 @@ n_agents = 5
 def setup_and_train():
     # Create a single environment and register it
     def env_creator(_):
-        return Diploma_Env()
+        return Diploma_Env(num_steps, n_agents)
 
-    multi_env = Diploma_Env(num_steps=num_steps, num_agents=n_agents)
+    multi_env = Diploma_Env(num_steps, n_agents)
     env_name = "Diploma_Env"
     register_env(env_name, env_creator)
 

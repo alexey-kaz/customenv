@@ -6,7 +6,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 class Diploma_Env(MultiAgentEnv):
-    def __init__(self, num_steps=200, num_agents=5, is_JSSP=False, return_agent_actions=False, part=False):
+    def __init__(self, num_steps, num_agents, is_JSSP=False, return_agent_actions=False, part=False):
         super().__init__()
         self.num_steps = num_steps
         self.num_agents = num_agents  # number of computing devices (CDs)
@@ -20,7 +20,6 @@ class Diploma_Env(MultiAgentEnv):
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
-        self.exp_num = -1
         self.all_cpu_usage = None
         self.all_queue_usage = None
 
@@ -47,31 +46,33 @@ class Diploma_Env(MultiAgentEnv):
         c6 = np.random.randint(max_cpu_usage, self.num_steps, size=self.num_steps // 4 * self.num_agents)
         df = pd.DataFrame({'time': c1, 'snd': c2, 'rcv': c3, 'run_time': c4, 'life_time': c5, 'cpu_usage': c6})
         df = df.sort_values(by=['time', 'rcv']).drop_duplicates(subset=['time', 'snd', 'rcv'], ignore_index=True)
-        # время прихода от глобального времени
         df['queued'] = False
         df['active'] = False
         return df
 
     def send_task(self, task, rcv):
-        row = self.tasks_df.loc[(self.tasks_df.time == task.time.values[0])
-                                & (self.tasks_df.snd == task.snd.values[0])
-                                & (self.tasks_df.rcv == task.rcv.values[0]), 'time'].index[0]
-        col_time = self.tasks_df.columns.get_loc('time')
-        col_queued = self.tasks_df.columns.get_loc('queued')
+        self.tasks_df.drop(self.tasks_df[(self.tasks_df.time == task.time.values[0])
+                                         & (self.tasks_df.snd == task.snd.values[0])
+                                         & (self.tasks_df.rcv == task.rcv.values[0])], axis=1, inplace=True)
         # new time
-        self.tasks_df.iloc[row, col_time] = task.time.values[0] + self.relations[rcv][task.rcv.values[0]]
+        srs = task.copy(deep=True).squeeze()
+        srs['time'] = task.time.values[0] + self.relations[rcv][task.rcv.values[0]] + 1
         # not yet in queue after being sent
-        self.tasks_df.iloc[row, col_queued] = False
+        srs['queued'] = False
+        # new snd and rcv
+        srs['snd'], srs['rcv'] = srs['rcv'], rcv
+        # add new row to tasks_df and sort by time & rcv
+        self.tasks_df = pd.concat([self.tasks_df, pd.DataFrame(srs).transpose()], ignore_index=True)
+        self.tasks_df.sort_values(by=['time', 'rcv'], inplace=True)
+        self.tasks_df.reset_index(drop=True, inplace=True)
 
     def reset(self):
         if not self.time:
             self.tasks_df = self.gen_tasks(5, 10)
             self.relations = self.gen_relations(1, 4)
             self.cd_info = self.gen_cd_info(5, 15, 20, 50)
-            self.exp_num += 1
             self.all_cpu_usage = {i: 0 for i in range(self.num_agents)}
             self.all_queue_usage = {i: 0 for i in range(self.num_agents)}
-            print('Experiment', self.exp_num)
         obs = {}
         for i in range(self.num_agents):
             obs[i] = np.asarray([0.] * self.obs_space_shape)
@@ -100,32 +101,33 @@ class Diploma_Env(MultiAgentEnv):
                                                                   & (self.tasks_df.time == self.time),
                                                                   'run_time'].index[1:]
                     # move them to next time step
-                    self.tasks_df.iloc[tmp_queued_time_not_first, run_time_col_index] = \
-                        self.tasks_df.iloc[tmp_queued_time_not_first, run_time_col_index].apply(lambda x: x + 1)
-                    # change back their queued status
-                    self.tasks_df.iloc[tmp_queued_time_not_first, queued_col_index] = False
+                    for j in tmp_queued_time_not_first:
+                        self.send_task(j, i)
                 # get the first actually queued task
                 tmp_queued_time_first = self.tasks_df[(self.tasks_df.queued == True)
                                                       & (self.tasks_df.rcv == i)].index[0]
                 # make it active
                 self.tasks_df.iloc[tmp_queued_time_first, active_col_index] = True
-                # finished (runtime == 0) active task on i-th agent
+                # finished active task on i-th agent
                 tmp_active_runtime = self.tasks_df[(self.tasks_df.active == True) & (self.tasks_df.rcv == i)
-                                                   & (self.tasks_df.run_time == 0)]
+                                                   & (self.tasks_df.run_time + self.tasks_df.time == self.time)]
                 # if there are active finished tasks on i-th agent
                 if not tmp_active_runtime.empty:
                     # increase available queue space of i-th agent
                     self.cd_info.queue_avail[i] += 1
                     # delete finished task from dataframe
                     self.tasks_df.drop(self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.active == True)
-                                                     & (self.tasks_df.run_time == 0)].index[0], inplace=True)
-                tmp_queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
+                                                     & (self.tasks_df.run_time + self.tasks_df.time == self.time)].index[0], inplace=True)
+                tmp_queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)
+                                             & (self.tasks_df.time == self.time)]
                 tmp_queued_other = self.tasks_df[(self.tasks_df.rcv == action_dict[i]) & (self.tasks_df.queued == True)]
                 # if there are queued tasks on i-th agent
                 if not tmp_queued_i.empty:
-                    # append action to its own queue
+                    # if agent's available cpu is less than what task requires
                     if self.cd_info.cpu_avail[action_dict[i]] < tmp_queued_i.cpu_usage.values[0]:
                         rew[i] -= 50
+                        self.tasks_df.drop(tmp_queued_i, inplace=True)
+                    # append action to its own queue
                     elif action_dict[i] == i:
                         # reduce available queue space of i-th agent
                         self.cd_info.queue_avail[i] -= 1
@@ -169,8 +171,7 @@ class Diploma_Env(MultiAgentEnv):
                 # number of queued tasks
                 num_tasks_obs.append(tmp_queued_i.shape[0])
                 # ratio of queued tasks to max_queue
-                tmp_task_ratio = tmp_queued_i.shape[0] / self.cd_info.queue_avail[i] if self.cd_info.queue_avail[
-                    i] else 0
+                tmp_task_ratio = tmp_queued_i.shape[0] / self.cd_info.queue_avail[i] if self.cd_info.queue_avail[i] else 0
                 tasks_ratio_obs.append(tmp_task_ratio)
                 # runtimes of all queued tasks
                 total_run_time_obs.append(np.sum(tmp_queued_i.run_time.values))
@@ -183,8 +184,7 @@ class Diploma_Env(MultiAgentEnv):
         # normalize obs from 0 to 1
         for i in range(len(normalized_obs)):
             if np.max(non_normalized_obs[i]):
-                normalized_obs[i] = (non_normalized_obs[i] - np.min(non_normalized_obs[i])) / np.ptp(
-                    non_normalized_obs[i])
+                normalized_obs[i] = (non_normalized_obs[i] - np.min(non_normalized_obs[i])) / np.ptp(non_normalized_obs[i])
             else:
                 normalized_obs[i] = [0.] * self.num_agents
 
@@ -192,14 +192,6 @@ class Diploma_Env(MultiAgentEnv):
         obs = {i: np.asarray(j, dtype=object) for i, j in enumerate(zip(*normalized_obs))}
 
         done["__all__"] = True
-
-        for i in range(self.num_agents):
-            tmp_active_runtime = self.tasks_df.loc[(self.tasks_df.rcv == i)
-                                                   & (self.tasks_df.active == True), 'run_time']
-            # if there are active tasks on i-th agent
-            if not tmp_active_runtime.empty:
-                # runtime -1
-                self.tasks_df.iloc[tmp_active_runtime.index[0], run_time_col_index] = tmp_active_runtime.values[0] - 1
 
         mask = (self.tasks_df['queued'] == True)
         tasks_queued = self.tasks_df[mask]
