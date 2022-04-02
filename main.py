@@ -13,6 +13,7 @@ from env import Diploma_Env
 tf = try_import_tf()
 num_steps = 1000
 n_agents = 5
+num_workers = 4
 
 
 # Driver code for training
@@ -50,14 +51,12 @@ def setup_and_train():
         "shuffle_sequences": True,
 
         "log_level": "INFO",
-        "num_workers": 1,
+        "num_workers": num_workers,
         "num_sgd_iter": 30,
         "sgd_minibatch_size": 128,
         "train_batch_size": num_steps,
-        "rollout_fragment_length": num_steps / 20,
+        "rollout_fragment_length": num_steps / num_workers,
         "lr": 5e-5,
-
-        "vf_loss_coeff": 1.0,
         "model": {
             "vf_share_layers": False,
             "fcnet_hiddens": [256, 256],
@@ -80,10 +79,9 @@ def setup_and_train():
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": 50
+            "training_iteration": 25
         },
-        'checkpoint_freq': 10,
-        "config": config,
+        "config": config
     }
 
     # Initialize ray and run
