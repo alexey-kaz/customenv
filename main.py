@@ -13,7 +13,7 @@ from env import Diploma_Env
 tf = try_import_tf()
 num_steps = 1000
 n_agents = 5
-num_workers = 4
+num_workers = 1
 
 
 # Driver code for training
@@ -51,6 +51,7 @@ def setup_and_train():
         "shuffle_sequences": True,
 
         "log_level": "INFO",
+        "num_cpus_per_worker": 4,
         "num_workers": num_workers,
         "num_sgd_iter": 30,
         "sgd_minibatch_size": 128,
@@ -66,7 +67,7 @@ def setup_and_train():
             "policy_mapping_fn": policy_mapping_fn,
         },
 
-        "clip_param": 0.3,
+        "clip_param": 0.5,
         "vf_clip_param": 5.0,
 
         "simple_optimizer": True,
@@ -79,7 +80,7 @@ def setup_and_train():
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": 25
+            "training_iteration": 30
         },
         "config": config
     }
