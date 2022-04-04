@@ -11,18 +11,26 @@ from ray.tune.registry import register_env
 from env import Diploma_Env
 
 tf = try_import_tf()
-num_steps = 1000
+
+n_steps = 500
 n_agents = 5
-num_workers = 1
+n_workers = 0
+env_conf = {
+    'num_steps': n_steps,
+    'num_agents': n_agents,
+    'is_JSSP': False,
+    'alpha': 0.3,
+    'gamma': 0.3,
+}
 
 
 # Driver code for training
-def setup_and_train():
+def setup_and_train(num_steps, num_agents, num_workers):
     # Create a single environment and register it
-    def env_creator(_):
-        return Diploma_Env(num_steps, n_agents)
+    def env_creator(env_config):
+        return Diploma_Env(env_config)
 
-    multi_env = Diploma_Env(num_steps, n_agents)
+    multi_env = Diploma_Env(env_conf)
     env_name = "Diploma_Env"
     register_env(env_name, env_creator)
 
@@ -47,17 +55,16 @@ def setup_and_train():
         # 'num_training_iterations': 20,
         "use_critic": True,
         "lambda": 1.0,
-        "kl_coeff": 0.2,
+        "kl_coeff": 0.1,
         "shuffle_sequences": True,
-
         "log_level": "INFO",
-        "num_cpus_per_worker": 4,
+        # "num_cpus_per_worker": 8 / num_workers,
         "num_workers": num_workers,
         "num_sgd_iter": 30,
         "sgd_minibatch_size": 128,
         "train_batch_size": num_steps,
-        "rollout_fragment_length": num_steps / num_workers,
-        "lr": 5e-5,
+        # "rollout_fragment_length": num_steps / num_workers,
+        "lr": 3e-4,
         "model": {
             "vf_share_layers": False,
             "fcnet_hiddens": [256, 256],
@@ -67,11 +74,13 @@ def setup_and_train():
             "policy_mapping_fn": policy_mapping_fn,
         },
 
-        "clip_param": 0.5,
-        "vf_clip_param": 5.0,
+        "clip_param": 0.3,
+        "vf_clip_param": 3,
 
         "simple_optimizer": True,
-        "env": "Diploma_Env"
+
+        "env": env_name,
+        "env_config": env_conf
     }
 
     # Define experiment details
@@ -80,9 +89,11 @@ def setup_and_train():
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": 30
+            "training_iteration": 10000/num_steps
         },
-        "config": config
+        'checkpoint_freq': 1,
+        "config": config,
+        'num_samples': 6
     }
 
     # Initialize ray and run
@@ -91,4 +102,4 @@ def setup_and_train():
 
 
 if __name__ == '__main__':
-    setup_and_train()
+    setup_and_train(n_steps, n_agents, n_workers)
