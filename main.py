@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 import ray
 from ray import tune
 from ray.rllib import agents
@@ -5,6 +8,7 @@ from ray.rllib.models import ModelCatalog
 from ray.rllib.models.tf.tf_modelv2 import TFModelV2
 from ray.rllib.models.tf.fcnet import FullyConnectedNetwork
 from ray.rllib.utils import try_import_tf
+from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import register_env
 from datetime import datetime
 
@@ -16,18 +20,19 @@ tf = try_import_tf()
 n_steps = 500
 n_agents = 5
 n_workers = 0
-max_num_steps = 20000
+max_n_steps = 20000
 env_conf = {
     'num_steps': n_steps,
     'num_agents': n_agents,
     'is_JSSP': False,
     'alpha': 0.3,
     'gamma': 0.3,
+    'data_path': os.path.abspath('./data/'),
 }
 
 
 # Driver code for training
-def setup_and_train(num_steps, num_agents, num_workers):
+def setup_and_train(num_steps, max_num_steps, num_workers):
     # Create a single environment and register it
     def env_creator(env_config):
         return Diploma_Env(env_config)
@@ -91,9 +96,9 @@ def setup_and_train(num_steps, num_agents, num_workers):
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": max_num_steps/num_steps/10
+            "training_iteration": int(max_num_steps / num_steps)
         },
-        'checkpoint_freq': 25,
+        'checkpoint_freq': int(max_num_steps / num_steps / 10),
         "config": config,
         'num_samples': 6,
         'local_dir': './exp_res',
@@ -105,5 +110,4 @@ def setup_and_train(num_steps, num_agents, num_workers):
     tune.run(**exp_dict)
 
 
-if __name__ == '__main__':
-    setup_and_train(n_steps, n_agents, n_workers)
+setup_and_train(n_steps, max_n_steps, n_workers)
