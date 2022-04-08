@@ -6,6 +6,7 @@ from ray.rllib.models.tf.tf_modelv2 import TFModelV2
 from ray.rllib.models.tf.fcnet import FullyConnectedNetwork
 from ray.rllib.utils import try_import_tf
 from ray.tune.registry import register_env
+from datetime import datetime
 
 # Import environment definition
 from env import Diploma_Env
@@ -15,6 +16,7 @@ tf = try_import_tf()
 n_steps = 500
 n_agents = 5
 n_workers = 0
+max_num_steps = 20000
 env_conf = {
     'num_steps': n_steps,
     'num_agents': n_agents,
@@ -84,16 +86,18 @@ def setup_and_train(num_steps, num_agents, num_workers):
     }
 
     # Define experiment details
-    exp_name = 'my_exp'
+    exp_name = 'exp_{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     exp_dict = {
         'name': exp_name,
         'run_or_experiment': 'PPO',
         "stop": {
-            "training_iteration": 10000/num_steps
+            "training_iteration": max_num_steps/num_steps/10
         },
-        'checkpoint_freq': 1,
+        'checkpoint_freq': 25,
         "config": config,
-        'num_samples': 6
+        'num_samples': 6,
+        'local_dir': './exp_res',
+        'mode': 'max'
     }
 
     # Initialize ray and run
