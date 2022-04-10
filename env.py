@@ -12,9 +12,9 @@ class Diploma_Env(MultiAgentEnv):
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
         self.is_JSSP = env_config['is_JSSP']  # make True for all send times between CDs to be 0
         self.alpha, self.gamma = env_config['alpha'], env_config['gamma']
-        self.obs_space_shape = 5
-        low = np.array([0] * self.obs_space_shape, dtype=np.float)
-        high = np.array([1] * self.obs_space_shape, dtype=np.float)
+        self.state_space_shape = 3
+        low = np.array([0] * self.state_space_shape, dtype=np.float)
+        high = np.array([1] * self.state_space_shape, dtype=np.float)
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
@@ -88,14 +88,14 @@ class Diploma_Env(MultiAgentEnv):
             self.all_cpu_usage = {i: 0 for i in range(self.num_agents)}
             self.all_queue_usage = {i: 0 for i in range(self.num_agents)}
             self.exp_num += 1
-        obs = {}
+        state = {}
         for i in range(self.num_agents):
-            obs[i] = np.asarray([0.] * self.obs_space_shape)
-        return obs
+            state[i] = np.asarray([0.] * self.state_space_shape)
+        return state
 
     def step(self, action_dict):
         active_col_index = self.tasks_df.columns.get_loc('active')
-        obs, rew, done, info = {}, {i: 0 for i in range(self.num_agents)}, {}, {}
+        state, rew, done, info = {}, {i: 0 for i in range(self.num_agents)}, {}, {}
         # all new tasks from this time step are labeled as queued
         self.tasks_df.loc[(self.tasks_df.time == self.time), 'queued'] = True
         # drop tasks with tll > 2
@@ -125,19 +125,17 @@ class Diploma_Env(MultiAgentEnv):
                 # delete finished task from dataframe
                 self.tasks_df.drop(active_runtime_finished.index, inplace=True)
 
-                queued_time_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)
+                queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)
                                               & (self.tasks_df.time == self.time)]
-                # queued_time_cpu = queued_time_i[self.cd_info.cpu_avail[action_dict[i]] < queued_time_i.cpu_usage]
-                # self.tasks_df.drop(queued_time_cpu.index, inplace=True)
                 # if there are queued tasks on i-th agent
                 tmp_queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
                 tmp_queued_other = self.tasks_df[(self.tasks_df.rcv == action_dict[i]) & (self.tasks_df.queued == True)]
-                if not queued_time_i.empty:
-                    if self.cd_info.queue_avail[action_dict[i]] > 0 and self.cd_info.cpu_avail[action_dict[i]] > 0:
+                if not queued_i.empty:
+                    if self.cd_info.queue_avail[action_dict[i]] > 0 and self.cd_info.cpu_avail[action_dict[i]] > queued_i.cpu_usage.values[-1]:
                         # append action to its own queue
                         if action_dict[i] == i:
-                            # all queued tasks run_times (except for the new one)
-                            tmp_reward = np.sum(tmp_queued_i.run_time[:-1])
+                            # all queued tasks run_times
+                            tmp_reward = np.sum(tmp_queued_i.run_time)
                             # negative reward if lifetime ends before all tasks in queue are done
                             rew[i] += - 1 * (tmp_reward > tmp_queued_i.life_time.values[-1])
                             # reduce available queue space of i-th agent
@@ -159,10 +157,10 @@ class Diploma_Env(MultiAgentEnv):
                             # add this task to queue usage of i-th agent
                             self.all_queue_usage[action_dict[i]] += 1
                             # send from i-th agent to chosen by action
-                            self.send_task(queued_time_i, action_dict[i])
+                            self.send_task(queued_i, action_dict[i])
                     else:
-                        tmp_free_agent = self.free_agent(-1)
-                        self.send_task(queued_time_i, tmp_free_agent)
+                        tmp_free_agent = self.free_agent(i)
+                        self.send_task(queued_i, tmp_free_agent)
             done[i], info[i] = True, {}
         for i in range(self.num_agents):
             # get all queued tasks of i-th agent (that aren't active)
@@ -170,51 +168,48 @@ class Diploma_Env(MultiAgentEnv):
                                      & (self.tasks_df.active == False)]
             # make queued tasks active on i-th agent until it runs out of cpu
             for j, k in queued_i.iterrows():
-                if self.cd_info.cpu_avail[i] - k.cpu_usage >= 0:
-                    self.tasks_df.iloc[k.name, active_col_index] = True
-                    self.cd_info.cpu_avail[i] -= k.cpu_usage
-                    self.all_cpu_usage[i] += k.cpu_usage
+                if self.cd_info.cpu_avail[i] < k.cpu_usage:
+                    break
+                self.tasks_df.iloc[k.name, active_col_index] = True
+                self.cd_info.cpu_avail[i] -= k.cpu_usage
+                self.all_cpu_usage[i] += k.cpu_usage
 
         delta = sum(self.all_cpu_usage.values()) / (self.time + 1) / self.num_agents
-        cpu_obs, queue_obs = [], []
+        num_tasks_state, tasks_ratio_state, total_run_time_state = [], [], []
+
         for i in range(self.num_agents):
+
             cpu_avg_i = self.all_cpu_usage[i] / (self.time + 1)
-            queue_avg_i = self.all_queue_usage[i] / (self.time + 1)
             cpu_div = 0. if not self.cd_info.cpu_avail[i] else cpu_avg_i / self.cd_info.cpu_avail[i]
             rew[i] -= self.alpha * cpu_div + self.gamma * (cpu_div - delta) ** 2
-            cpu_obs.append(cpu_div)
-            tmp_queue_obs = 0. if not self.cd_info.queue_avail[i] else queue_avg_i / self.cd_info.queue_avail[i]
-            queue_obs.append(tmp_queue_obs)
-        num_tasks_obs, tasks_ratio_obs, total_run_time_obs = [], [], []
-        for i in range(self.num_agents):
-            queued_time_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
-            if not queued_time_i.empty:
-                # number of queued tasks
-                num_tasks_obs.append(queued_time_i.shape[0])
-                # ratio of queued tasks to max_queue
-                tmp_task_ratio = queued_time_i.shape[0] / self.cd_info.queue_avail[i] if self.cd_info.queue_avail[i] else 0
-                tasks_ratio_obs.append(tmp_task_ratio)
-                # runtimes of all queued tasks
-                total_run_time_obs.append(np.sum(queued_time_i.run_time.values))
-            else:
-                num_tasks_obs.append(0.)
-                tasks_ratio_obs.append(0.)
-                total_run_time_obs.append(0.)
-        non_normalized_obs = [num_tasks_obs, tasks_ratio_obs, total_run_time_obs, cpu_obs, queue_obs]
-        normalized_obs = [None] * len(non_normalized_obs)
-        # normalize obs from 0 to 1
-        for i in range(len(normalized_obs)):
-            if np.max(non_normalized_obs[i]):
-                normalized_obs[i] = (non_normalized_obs[i] - np.min(non_normalized_obs[i])) / np.ptp(non_normalized_obs[i])
-            else:
-                normalized_obs[i] = [0.] * self.num_agents
 
-        # observation (visible state) encoding
-        obs = {i: np.asarray(j, dtype=object) for i, j in enumerate(zip(*normalized_obs))}
+            queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
+            if not queued_i.empty:
+                # number of queued tasks
+                num_tasks_state.append(queued_i.shape[0])
+                # ratio of queued tasks to max_queue
+                tasks_ratio_state.append(queued_i.shape[0] / self.cd_info.queue_max[i])
+                # runtimes of all queued tasks
+                total_run_time_state.append(np.sum(queued_i.run_time.values))
+            else:
+                num_tasks_state.append(0.)
+                tasks_ratio_state.append(0.)
+                total_run_time_state.append(0.)
+        non_normalized_state = [num_tasks_state, tasks_ratio_state, total_run_time_state]
+        normalized_state = [None] * len(non_normalized_state)
+        # normalize state from 0 to 1
+        for i in range(len(normalized_state)):
+            if np.max(non_normalized_state[i]):
+                normalized_state[i] = (non_normalized_state[i] - np.min(non_normalized_state[i])) / np.ptp(non_normalized_state[i])
+            else:
+                normalized_state[i] = [0.] * self.num_agents
+
+        # state encoding
+        state = {i: np.asarray(j, dtype=object) for i, j in enumerate(zip(*normalized_state))}
 
         done["__all__"] = True
 
         self.tasks_df.drop(self.tasks_df[self.tasks_df.time + self.tasks_df.life_time == self.time].index, inplace=True)
         self.time = (self.time + 1) % self.num_steps
         # available_actions = np.where(self.cd_info.queue_avail > 0, 1, 0)
-        return obs, rew, done, info
+        return state, rew, done, info

@@ -54,7 +54,7 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
     for i in range(num_agents):
         policy_graphs['agent-' + str(i)] = gen_policy()
 
-    def policy_mapping_fn(agent_id, **kwargs):
+    def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         return 'agent-{}'.format(agent_id)
 
     # Define configuration with hyperparam and training details
@@ -64,7 +64,6 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
         "lambda": 1.0,
         "kl_coeff": 0.1,
         "shuffle_sequences": True,
-        "log_level": "INFO",
         # "num_cpus_per_worker": 8 / num_workers,
         "num_workers": num_workers,
         "num_sgd_iter": 30,
@@ -102,7 +101,8 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
         "config": config,
         'num_samples': 6,
         'local_dir': './exp_res',
-        'mode': 'max'
+        'mode': 'max',
+        "verbose": 0,
     }
 
     # Initialize ray and run
