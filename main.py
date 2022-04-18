@@ -25,7 +25,9 @@ env_conf = {
     'num_steps': n_steps,
     'num_agents': n_agents,
     'is_JSSP': False,
+    'queue_rew_toggle': True,
     'alpha': 0.3,
+    'beta': 0.3,
     'gamma': 0.3,
     'data_path': os.path.abspath('./data/'),
 }
@@ -99,7 +101,7 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
         },
         'checkpoint_freq': int(max_num_steps / num_steps / 10),
         "config": config,
-        'num_samples': 6,
+        'num_samples': 3,
         'local_dir': './exp_res',
         'mode': 'max',
         "verbose": 0,
