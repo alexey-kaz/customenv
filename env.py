@@ -11,10 +11,12 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 class Diploma_Env(MultiAgentEnv):
     def __init__(self, env_config):
+        print(env_config)
         super().__init__()
         self.drop_file_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
+        num_rcv = env_config['num_rcv']
         self.is_JSSP = env_config['is_JSSP']  # make True for all send times between CDs to be 0
         self.queue_rew_toggle = env_config['queue_rew_toggle']  # make True for all send times between CDs to be 0
         self.alpha, self.beta, self.gamma = env_config['alpha'], env_config['beta'], env_config['gamma']
@@ -24,9 +26,9 @@ class Diploma_Env(MultiAgentEnv):
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
-        self.tasks_df_main = pd.read_csv('{}/tasks_df_{}_{}.csv'.format(env_config['data_path'], self.num_agents, self.num_steps), converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
-        self.relations_main = np.load('{}/relations_{}_{}.npy'.format(env_config['data_path'], self.num_agents, self.num_steps))
-        self.cd_info_main = pd.read_csv('{}/cd_info_{}_{}.csv'.format(env_config['data_path'], self.num_agents, self.num_steps))
+        self.tasks_df_main = pd.read_csv('{}/tasks_df_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv), converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
+        self.relations_main = np.load('{}/relations_{}_{}_{}.npy'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv))
+        self.cd_info_main = pd.read_csv('{}/cd_info_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv))
         self.tasks_df = None
         self.relations = None
         self.cd_info = None
