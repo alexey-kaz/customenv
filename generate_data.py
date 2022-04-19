@@ -21,6 +21,7 @@ class DataGen:
         self.max_queue = 25
         self.min_cpu = 50
         self.max_cpu = 80
+        self.gen_agents = [0, 1, 2]
 
     def gen_relations(self):
         b = np.random.randint(self.min_route, self.max_route, size=(self.num_agents, self.num_agents))
@@ -35,9 +36,10 @@ class DataGen:
 
     def gen_tasks(self):
         tmp_del = 4
-        c1 = np.random.randint(0, self.num_steps, size=self.num_steps // tmp_del * self.num_agents)
-        c2 = np.random.randint(0, self.num_agents, size=self.num_steps // tmp_del * self.num_agents)
-        c3 = np.random.randint(self.max_run_time, self.num_steps, size=self.num_steps // tmp_del * self.num_agents)
+        c1 = np.random.randint(0, self.num_steps/2, size=self.num_steps // tmp_del * self.num_agents)
+        # c2 = np.random.randint(0, self.num_agents, size=self.num_steps // tmp_del * self.num_agents)
+        c2 = np.random.choice(self.gen_agents, size=self.num_steps // tmp_del * self.num_agents)
+        c3 = np.random.randint(self.num_steps/20, self.num_steps, size=self.num_steps // tmp_del * self.num_agents)
         df = pd.DataFrame({'time': c1, 'rcv': c2, 'life_time': c3, 'life_time_global': c1 + c3})
         df['run_time_vec'] = np.random.randint(1, self.max_run_time,
                                                size=(self.num_steps // tmp_del * self.num_agents,

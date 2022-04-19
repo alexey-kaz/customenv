@@ -20,7 +20,7 @@ tf = try_import_tf()
 n_steps = 500
 n_agents = 5
 n_workers = 0
-max_n_steps = 20000
+max_n_steps = 100000
 env_conf = {
     'num_steps': n_steps,
     'num_agents': n_agents,
@@ -74,6 +74,9 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
         # "rollout_fragment_length": num_steps / num_workers,
         "lr": 3e-4,
         "model": {
+            "use_lstm": True,
+            # To further customize the LSTM auto-wrapper.
+            "lstm_cell_size": 64,
             "vf_share_layers": False,
             "fcnet_hiddens": [256, 256],
             "fcnet_activation": "tanh"},
@@ -101,7 +104,7 @@ def setup_and_train(num_steps, max_num_steps, num_workers):
         },
         'checkpoint_freq': int(max_num_steps / num_steps / 10),
         "config": config,
-        'num_samples': 3,
+        'num_samples': 6,
         'local_dir': './exp_res',
         'mode': 'max',
         "verbose": 0,
