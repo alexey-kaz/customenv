@@ -1,31 +1,39 @@
+from datetime import datetime
+
 import gym
 import numpy as np
 import pandas as pd
+from ast import literal_eval
 
+from matplotlib import pyplot as plt
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 class Diploma_Env(MultiAgentEnv):
     def __init__(self, env_config):
         super().__init__()
+        self.drop_file_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
         self.is_JSSP = env_config['is_JSSP']  # make True for all send times between CDs to be 0
-        self.alpha, self.gamma = env_config['alpha'], env_config['gamma']
+        self.queue_rew_toggle = env_config['queue_rew_toggle']  # make True for all send times between CDs to be 0
+        self.alpha, self.beta, self.gamma = env_config['alpha'], env_config['beta'], env_config['gamma']
         self.state_space_shape = 4
         low = np.array([0] * self.state_space_shape, dtype=np.float)
         high = np.array([1] * self.state_space_shape, dtype=np.float)
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
-        self.tasks_df_main = self.gen_tasks(5, 20)
-        self.relations_main = self.gen_relations(1, 4)
-        self.cd_info_main = self.gen_cd_info(10, 25, 50, 80)
+        self.tasks_df_main = pd.read_csv('{}/tasks_df_{}_{}.csv'.format(env_config['data_path'], self.num_agents, self.num_steps), converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
+        self.relations_main = np.load('{}/relations_{}_{}.npy'.format(env_config['data_path'], self.num_agents, self.num_steps))
+        self.cd_info_main = pd.read_csv('{}/cd_info_{}_{}.csv'.format(env_config['data_path'], self.num_agents, self.num_steps))
         self.tasks_df = None
         self.relations = None
         self.cd_info = None
         self.all_cpu_usage = None
         self.all_queue_usage = None
+        self.drop = None
+        self.drop_vec = []
         self.exp_num = 0
 
     def gen_relations(self, min_route, max_route):
@@ -70,6 +78,9 @@ class Diploma_Env(MultiAgentEnv):
         # new snd and rcv
         srs['snd'], srs['rcv'] = srs['rcv'], rcv
         srs['ttl'] += 1
+        # print(srs.get(key='run_time_vec'), srs.get(key='cpu_usage_vec'))
+        srs['run_time'] = srs.get(key='run_time_vec')[rcv]
+        srs['cpu_usage'] = srs.get(key='cpu_usage_vec')[rcv]
         # add new row to tasks_df and sort by time & rcv
         self.tasks_df = pd.concat([self.tasks_df, pd.DataFrame(srs).transpose()], ignore_index=True)
         self.tasks_df.sort_values(by=['time', 'rcv'], inplace=True)
@@ -83,6 +94,13 @@ class Diploma_Env(MultiAgentEnv):
     def reset(self):
         if not self.time:
             # print("EXPERIMENT", self.exp_num)
+            if self.drop is not None:
+                self.drop_vec.append(self.drop)
+                x = [self.num_steps*(i+1) for i in range(len(self.drop_vec))]
+                plt.plot(x, self.drop_vec)
+                plt.xticks(x)
+                plt.savefig('drop_{}_{}.png'.format(self.drop_file_name, self.queue_rew_toggle))
+            self.drop = 0
             self.tasks_df = self.tasks_df_main.copy(deep=True)
             self.relations = self.relations_main.copy()
             self.cd_info = self.cd_info_main.copy(deep=True)
@@ -96,11 +114,13 @@ class Diploma_Env(MultiAgentEnv):
 
     def step(self, action_dict):
         active_col_index = self.tasks_df.columns.get_loc('active')
+        time_activated_col_index = self.tasks_df.columns.get_loc('time_activated')
         state, rew, done, info = {}, {i: 0 for i in range(self.num_agents)}, {}, {}
         # all new tasks from this time step are labeled as queued
         self.tasks_df.loc[(self.tasks_df.time == self.time), 'queued'] = True
         # drop tasks with tll > 2
-        self.tasks_df.drop(self.tasks_df[self.tasks_df.ttl > 2].index, inplace=True)
+        self.drop += self.tasks_df[self.tasks_df.ttl > self.num_steps/10].shape[0]
+        self.tasks_df.drop(self.tasks_df[self.tasks_df.ttl > self.num_steps/10].index, inplace=True)
         self.tasks_df.reset_index(drop=True, inplace=True)
         for i in range(self.num_agents):
             # if there are queued tasks on i-th agent
@@ -117,7 +137,7 @@ class Diploma_Env(MultiAgentEnv):
                         self.send_task(k.to_frame().transpose(), tmp_free_agent)
                 # finished active task on i-th agent
                 active_runtime_finished = self.tasks_df[(self.tasks_df.active == True) & (self.tasks_df.rcv == i)
-                                                        & (self.tasks_df.run_time + self.tasks_df.time == self.time)]
+                                                        & (self.tasks_df.run_time + self.tasks_df.time_activated == self.time)]
                 # increase available queue and cpu of i-th agent
                 self.cd_info.queue_avail[i] += active_runtime_finished.shape[0]
                 self.cd_info.cpu_avail[i] += sum(active_runtime_finished.cpu_usage)
@@ -129,8 +149,8 @@ class Diploma_Env(MultiAgentEnv):
                 queued_i_time = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)
                                               & (self.tasks_df.time == self.time)]
                 # if there are queued tasks on i-th agent
-                queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
-                queued_other = self.tasks_df[(self.tasks_df.rcv == action_dict[i]) & (self.tasks_df.queued == True)]
+                queued_i = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True) & (self.tasks_df.active == False)]
+                queued_other = self.tasks_df[(self.tasks_df.rcv == action_dict[i]) & (self.tasks_df.queued == True) & (self.tasks_df.active == False)]
                 if not queued_i_time.empty:
                     if self.cd_info.queue_avail[action_dict[i]] > 0 and self.cd_info.cpu_avail[action_dict[i]] > queued_i_time.cpu_usage.values[-1]:
                         # append action to its own queue
@@ -138,7 +158,7 @@ class Diploma_Env(MultiAgentEnv):
                             # all queued tasks run_times
                             tmp_reward = np.sum(queued_i.run_time)
                             # negative reward if lifetime ends before all tasks in queue are done
-                            rew[i] += - 1 * (tmp_reward > queued_i.life_time.values[-1])
+                            rew[i] += -0.5 * (tmp_reward > queued_i_time.life_time.values[-1])
                             # reduce available queue space of i-th agent
                             self.cd_info.queue_avail[i] -= 1
                             # add this task to queue usage of i-th agent
@@ -148,11 +168,11 @@ class Diploma_Env(MultiAgentEnv):
                             # all runtimes on new agent
                             tmp_reward = np.sum(queued_other.run_time)
                             # new task's runtime
-                            tmp_reward += queued_i.run_time.values[-1]
+                            tmp_reward += queued_i_time.run_time.values[-1]
                             # time to send between agents
                             tmp_reward += self.relations[i][action_dict[i]]
                             # negative reward if lifetime ends before task is received and all tasks in new queue are done
-                            rew[i] += -1 * (tmp_reward > queued_i.life_time.values[-1])
+                            rew[i] += -0.5 * (tmp_reward > queued_i_time.life_time.values[-1])
                             # reduce available queue space of receiving agent
                             self.cd_info.queue_avail[action_dict[i]] -= 1
                             # add this task to queue usage of i-th agent
@@ -173,20 +193,26 @@ class Diploma_Env(MultiAgentEnv):
                 if self.cd_info.cpu_avail[i] < k.cpu_usage:
                     break
                 self.tasks_df.iloc[k.name, active_col_index] = True
+                self.tasks_df.iloc[k.name, time_activated_col_index] = self.time
                 self.cd_info.cpu_avail[i] -= k.cpu_usage
                 self.all_cpu_usage[i] += k.cpu_usage
             tmp_min_time_left = 0. if queued_i.empty else min(queued_i.life_time_global - (self.time + queued_i.run_time))
             min_time_left_state.append(tmp_min_time_left)
 
         delta = sum(self.all_cpu_usage.values()) / (self.time + 1) / self.num_agents
+        theta = sum(self.all_queue_usage.values()) / (self.time + 1) / self.num_agents
         num_tasks_state, tasks_ratio_state, total_run_time_state = [], [], []
 
         for i in range(self.num_agents):
 
             cpu_avg_i = self.all_cpu_usage[i] / (self.time + 1)
             cpu_div = 0. if not self.cd_info.cpu_avail[i] else cpu_avg_i / self.cd_info.cpu_avail[i]
+            queue_avg_i = self.all_queue_usage[i] / (self.time + 1)
+            queue_div = 0. if not self.cd_info.queue_avail[i] else queue_avg_i / self.cd_info.queue_avail[i]
+            queue_factor = self.beta * queue_div + self.gamma * (queue_div - theta) ** 2
             rew[i] -= self.alpha * cpu_div + self.gamma * (cpu_div - delta) ** 2
-
+            if self.queue_rew_toggle:
+                rew[i] -= queue_factor
             queued_i_time = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)]
             if queued_i_time.empty:
                 num_tasks_state.append(0.)
@@ -210,9 +236,9 @@ class Diploma_Env(MultiAgentEnv):
 
         # state encoding
         state = {i: np.asarray(j, dtype=object) for i, j in enumerate(zip(*normalized_state))}
-
+        # print(normalized_state)
         done["__all__"] = True
-
+        self.drop += self.tasks_df[self.tasks_df.life_time_global == self.time].shape[0]
         self.tasks_df.drop(self.tasks_df[self.tasks_df.life_time_global == self.time].index, inplace=True)
         self.time = (self.time + 1) % self.num_steps
         # available_actions = np.where(self.cd_info.queue_avail > 0, 1, 0)

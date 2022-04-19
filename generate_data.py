@@ -3,48 +3,64 @@ import sys
 import numpy as np
 import pandas as pd
 
-if len(sys.argv) == 3:
-    num_agents = int(sys.argv[1])
-    num_steps = int(sys.argv[2])
-else:
-    num_agents = 5
-    num_steps = 500
 
+class DataGen:
+    def __init__(self, num_agents=5, num_steps=500):
+        self.max_cpu_usage = 5
+        self.max_run_time = 20
+        self.num_agents = num_agents
+        self.num_steps = num_steps
+        self.min_route = 1
+        self.max_route = 4
+        self.min_queue = 10
+        self.max_queue = 25
+        self.min_cpu = 50
+        self.max_cpu = 80
 
-def gen_relations(min_route, max_route):
-    b = np.random.randint(min_route, max_route, size=(num_agents, num_agents))
-    res = (b + b.T) // 2
-    np.fill_diagonal(res, 0)
-    return res
+    def gen_relations(self):
+        b = np.random.randint(self.min_route, self.max_route, size=(self.num_agents, self.num_agents))
+        res = (b + b.T) // 2
+        np.fill_diagonal(res, 0)
+        return res
 
+    def gen_cd_info(self):
+        c1 = np.random.randint(self.min_queue, self.max_queue, size=self.num_agents)
+        c2 = np.random.randint(self.min_cpu, self.max_cpu, size=self.num_agents)
+        return pd.DataFrame({'queue_avail': c1, 'queue_max': c1, 'cpu_avail': c2, 'cpu_max': c2})
 
-def gen_cd_info(min_queue, max_queue, min_cpu, max_cpu):
-    c1 = np.random.randint(min_queue, max_queue, size=num_agents)
-    c2 = np.random.randint(min_cpu, max_cpu, size=num_agents)
-    return pd.DataFrame({'queue_avail': c1, 'queue_max': c1, 'cpu_avail': c2, 'cpu_max': c2})
-
-
-def gen_tasks(max_run_time, max_cpu_usage):
-    tmp_del = 4
-    c1 = np.random.randint(0, num_steps, size=num_steps // tmp_del * num_agents)
-    c2 = np.full(num_steps // tmp_del * num_agents, -1)
-    c3 = np.random.randint(0, num_agents, size=num_steps // tmp_del * num_agents)
-    c4 = np.random.randint(1, max_run_time, size=num_steps // tmp_del * num_agents)
-    c5 = np.random.randint(max_run_time, num_steps, size=num_steps // tmp_del * num_agents)
-    c6 = np.random.randint(1, max_cpu_usage, size=num_steps // tmp_del * num_agents)
-    df = pd.DataFrame({'time': c1, 'snd': c2, 'rcv': c3, 'run_time': c4, 'life_time': c5, 'cpu_usage': c6})
-    df = df.sort_values(by=['time', 'rcv']).drop_duplicates(subset=['time', 'snd', 'rcv'], ignore_index=True)
-    df['queued'] = False
-    df['active'] = False
-    df['ttl'] = 0
-    return df
+    def gen_tasks(self):
+        tmp_del = 4
+        c1 = np.random.randint(0, self.num_steps, size=self.num_steps // tmp_del * self.num_agents)
+        c2 = np.random.randint(0, self.num_agents, size=self.num_steps // tmp_del * self.num_agents)
+        c3 = np.random.randint(self.max_run_time, self.num_steps, size=self.num_steps // tmp_del * self.num_agents)
+        df = pd.DataFrame({'time': c1, 'rcv': c2, 'life_time': c3, 'life_time_global': c1 + c3})
+        df['run_time_vec'] = np.random.randint(1, self.max_run_time,
+                                               size=(self.num_steps // tmp_del * self.num_agents,
+                                                     self.num_agents)).tolist()
+        df['run_time'] = df.apply(lambda x: x.get(key='run_time_vec')[x.get('rcv')], axis=1)
+        df['cpu_usage_vec'] = np.random.randint(1, self.max_cpu_usage,
+                                                size=(self.num_steps // tmp_del * self.num_agents,
+                                                      self.num_agents)).tolist()
+        df['cpu_usage'] = df.apply(lambda x: x.get(key='cpu_usage_vec')[x.get('rcv')], axis=1)
+        df = df.sort_values(by=['time', 'rcv']).drop_duplicates(subset=['time', 'rcv'], ignore_index=True)
+        df['snd'] = -1
+        df['queued'] = False
+        df['active'] = False
+        df['ttl'] = 0
+        df['time_activated'] = None
+        return df
 
 
 if not os.path.exists('./data'):
     os.makedirs('./data')
-tasks_df = gen_tasks(5, 20)
-relations = gen_relations(1, 4)
-cd_info = gen_cd_info(10, 25, 50, 80)
-tasks_df.to_csv(r'./data/tasks_df_5_500.csv', index=False)
-cd_info.to_csv(r'./data/cd_info_5_500.csv', index=False)
-np.save('./data/relations_5_500.npy', relations)
+num_agents_vec = [3, 5, 10]
+num_steps_vec = [250 * 2**i for i in range(4)]
+for i in num_agents_vec:
+    for j in num_steps_vec:
+        datagen = DataGen(i, j)
+        tasks_df = datagen.gen_tasks()
+        relations = datagen.gen_relations()
+        cd_info = datagen.gen_cd_info()
+        tasks_df.to_csv(r'./data/tasks_df_{}_{}.csv'.format(i, j), index=False)
+        cd_info.to_csv(r'./data/cd_info_{}_{}.csv'.format(i, j), index=False)
+        np.save('./data/relations_{}_{}.npy'.format(i, j), relations)
