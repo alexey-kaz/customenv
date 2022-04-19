@@ -14,7 +14,6 @@ class Diploma_Env(MultiAgentEnv):
     def __init__(self, env_config):
         super().__init__()
         self.drop_file_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        os.makedirs('./exp_res/{}'.format(self.drop_file_name))
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
         num_rcv = env_config['num_rcv']
@@ -102,6 +101,8 @@ class Diploma_Env(MultiAgentEnv):
                 x = [self.num_steps*(i+1) for i in range(len(self.drop_vec))]
                 plt.plot(x, self.drop_vec)
                 plt.xticks(x)
+                if not os.path.exists('./exp_res/{}'.format(self.drop_file_name)):
+                    os.makedirs('./exp_res/{}'.format(self.drop_file_name))
                 plt.savefig('./exp_res/{}/drop_{}_{}.png'.format(self.drop_file_name, self.drop_file_name, self.queue_rew_toggle))
             self.drop = 0
             self.tasks_df = self.tasks_df_main.copy(deep=True)
