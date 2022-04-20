@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 
 import gym
 import numpy as np
@@ -13,22 +12,22 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 class Diploma_Env(MultiAgentEnv):
     def __init__(self, env_config):
         super().__init__()
-        self.drop_file_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
-        num_rcv = env_config['num_rcv']
+        self.num_rcv = env_config['num_rcv']
         self.is_JSSP = env_config['is_JSSP']  # make True for all send times between CDs to be 0
         self.queue_rew_toggle = env_config['queue_rew_toggle']  # make True for all send times between CDs to be 0
         self.alpha, self.beta, self.gamma = env_config['alpha'], env_config['beta'], env_config['gamma']
+        self.datetime = env_config['datetime']
         self.state_space_shape = 4
         low = np.array([0] * self.state_space_shape, dtype=np.float)
         high = np.array([1] * self.state_space_shape, dtype=np.float)
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float)
         self.action_space = gym.spaces.Discrete(self.num_agents)
         self.time = 0
-        self.tasks_df_main = pd.read_csv('{}/tasks_df_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv), converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
-        self.relations_main = np.load('{}/relations_{}_{}_{}.npy'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv))
-        self.cd_info_main = pd.read_csv('{}/cd_info_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, num_rcv))
+        self.tasks_df_main = pd.read_csv('{}/tasks_df_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, self.num_rcv), converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
+        self.relations_main = np.load('{}/relations_{}_{}_{}.npy'.format(env_config['data_path'], self.num_steps, self.num_agents, self.num_rcv))
+        self.cd_info_main = pd.read_csv('{}/cd_info_{}_{}_{}.csv'.format(env_config['data_path'], self.num_steps, self.num_agents, self.num_rcv))
         self.tasks_df = None
         self.relations = None
         self.cd_info = None
@@ -95,15 +94,16 @@ class Diploma_Env(MultiAgentEnv):
 
     def reset(self):
         if not self.time:
-            # print("EXPERIMENT", self.exp_num)
+            print("EXPERIMENT", self.exp_num)
             if self.drop is not None:
                 self.drop_vec.append(self.drop)
+                np.save('./exp_res/exp_{}/drop_{}_{}_{}.npy'.format(self.datetime, self.num_steps, self.num_agents, self.num_rcv), self.drop)
                 x = [self.num_steps*(i+1) for i in range(len(self.drop_vec))]
                 plt.plot(x, self.drop_vec)
-                plt.xticks(x)
-                if not os.path.exists('./exp_res/{}'.format(self.drop_file_name)):
-                    os.makedirs('./exp_res/{}'.format(self.drop_file_name))
-                plt.savefig('./exp_res/{}/drop_{}_{}.png'.format(self.drop_file_name, self.drop_file_name, self.queue_rew_toggle))
+                plt.xticks(x, rotation=45)
+                if not os.path.exists('./exp_res/exp_{}'.format(self.datetime)):
+                    os.makedirs('./exp_res/exp_{}'.format(self.datetime))
+                plt.savefig('./exp_res/exp_{}/drop_{}_{}_{}.png'.format(self.datetime, self.num_steps, self.num_agents, self.num_rcv))
             self.drop = 0
             self.tasks_df = self.tasks_df_main.copy(deep=True)
             self.relations = self.relations_main.copy()
