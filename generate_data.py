@@ -54,15 +54,17 @@ class DataGen:
 if not os.path.exists('./data'):
     os.makedirs('./data')
 num_agents_vec = [5, 10, 15]
-num_steps_vec = [250 * 2**i for i in range(4)]
+num_steps_vec = [250 * 2**(i+1) for i in range(3)]
 for i in num_steps_vec:
     for j in num_agents_vec:
         for k in np.linspace(j//2, j, 3, dtype=int):
+            os.makedirs('./data/{}_{}_{}'.format(i, j, k))
             rcv_vec = np.random.choice(range(j), k, replace=False)
-            datagen = DataGen(rcv_vec, i, j, i/10)
-            tasks_df = datagen.gen_tasks()
-            relations = datagen.gen_relations()
-            cd_info = datagen.gen_cd_info()
-            tasks_df.to_csv(r'./data/tasks_df_{}_{}_{}.csv'.format(i, j, k), index=False)
-            cd_info.to_csv(r'./data/cd_info_{}_{}_{}.csv'.format(i, j, k), index=False)
-            np.save('./data/relations_{}_{}_{}.npy'.format(i, j, k), relations)
+            for m in ['Train', 'Test']:
+                datagen = DataGen(rcv_vec, i, j, i/10)
+                tasks_df = datagen.gen_tasks()
+                relations = datagen.gen_relations()
+                cd_info = datagen.gen_cd_info()
+                tasks_df.to_csv(r'./data/{}_{}_{}/{}_tasks_df.csv'.format(i, j, k, m), index=False)
+                cd_info.to_csv(r'./data/{}_{}_{}/{}_cd_info.csv'.format(i, j, k, m), index=False)
+                np.save('./data/{}_{}_{}/{}_relations.npy'.format(i, j, k, m), relations)
