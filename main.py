@@ -12,27 +12,36 @@ from datetime import datetime
 
 # Import environment definition
 from env import Diploma_Env
-from viz import plot_drop, plot_drop_double
+from viz import plot_drop
 
 ray.init()
 tf = try_import_tf()
 n_workers = 0
-# max_n_steps = 20000
-max_n_steps = 1000
+# max_n_steps = 2000
 time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
+num_agents_vec = [5, 15]
+num_rcv_vec = {i: np.linspace(i // 2, i, 3, dtype=int) for i in num_agents_vec}
+s, a, r = map(int, sys.argv[1:])
+print('num_steps: {}\nnum_agents: {}\nnum_rcv: {}'.format(num_steps_vec[a], num_agents_vec[s],
+                                                          num_rcv_vec[num_agents_vec[s]][r]))
+max_n_steps = num_steps_vec[a] * 20
 
 
 class Experiment:
-    def __init__(self):
-        num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
-        num_agents_vec = [5, 15]
-        num_rcv_vec = {i: np.linspace(i // 2, i, 3, dtype=int) for i in num_agents_vec}
-        s, a, r = map(int, sys.argv[1:])
-        print('num_steps: {}\nnum_agents: {}\nnum_rcv: {}'.format(num_steps_vec[a],
-                                                                  num_agents_vec[s],
-                                                                  num_rcv_vec[num_agents_vec[s]][r]))
+    def __init__(self, distr='uniform'):
+        self.distr = distr
+        self.env_name = 'Diploma_Env'
+        self.exp_name = 'exp_{}_{}'.format(time, distr)
+        self.env_conf = None
+        self.multi_env = None
+
+    # Driver code for training
+    def setup_and_train(self):
+
         self.env_conf = {
-            'mode': 'Train',
+            'max_n_steps': max_n_steps,
+            'distr': self.distr,
             'num_steps': num_steps_vec[a],
             'num_agents': num_agents_vec[s],
             'num_rcv': num_rcv_vec[num_agents_vec[s]][r],
@@ -41,16 +50,11 @@ class Experiment:
             'alpha': 0.3,
             'beta': 0.3,
             'gamma': 0.3,
-            'data_path': os.path.abspath('./data/'),
+            'data_path': os.path.abspath('./data/{}/'.format(self.distr)),
             'datetime': time
         }
-        self.train_config = None
-        self.env_name = "Diploma_Env"
         self.multi_env = Diploma_Env(self.env_conf)
-        self.exp_name = 'exp_{}'.format(time)
 
-    # Driver code for training
-    def setup_and_train(self):
         # Create a single environment and register it
         def env_creator(env_config):
             return Diploma_Env(env_config)
@@ -74,80 +78,66 @@ class Experiment:
             return 'agent-{}'.format(agent_id)
 
         # Define configuration with hyperparam and training details
-        self.train_config = {
+        train_config = {
             # 'num_training_iterations': 20,
-            "use_critic": True,
-            "lambda": 1.0,
-            "kl_coeff": 0.1,
+            'horizon': tune.grid_search([32, 1688, 3344, 5000]),
+            'use_critic': True,
+            'lambda': tune.grid_search([0.9, 0.95, 1]),
+            'kl_coeff': tune.grid_search([0.3, 0.65, 1]),
+            'kl_target': tune.grid_search([0.003, 0.01, 0.02, 0.03]),
             'num_workers': 1,
-            "shuffle_sequences": True,
-            "num_cpus_per_worker": 3,
-            "num_sgd_iter": 30,
-            "sgd_minibatch_size": 128,
-            "train_batch_size": self.env_conf['num_steps'],
-            # "rollout_fragment_length": num_steps / num_workers,
-            "lr": 3e-4,
-            "model": {
-                "vf_share_layers": False,
-                "fcnet_hiddens": [256, 256],
-                "fcnet_activation": "tanh"},
-            "multiagent": {
-                "policies": policy_graphs,
-                "policy_mapping_fn": policy_mapping_fn,
+            'shuffle_sequences': True,
+            'num_cpus_per_worker': 3,
+            'num_sgd_iter': 30,
+            'sgd_minibatch_size': 128,
+            'train_batch_size': self.env_conf['num_steps'],
+            # 'rollout_fragment_length': num_steps / num_workers,
+            'lr': 3e-4,
+            'model': {
+                'vf_share_layers': False,
+                'fcnet_hiddens': [256, 256],
+                'fcnet_activation': 'tanh'},
+            'multiagent': {
+                'policies': policy_graphs,
+                'policy_mapping_fn': policy_mapping_fn,
             },
 
-            "clip_param": 0.3,
-            "vf_clip_param": 3,
+            'clip_param': tune.grid_search([0.1, 0.2, 0.3]),
 
-            "simple_optimizer": True,
+            'simple_optimizer': True,
 
-            "env": self.env_name,
-            "env_config": self.env_conf
+            'env': self.env_name,
+            'env_config': self.env_conf
         }
 
         # Define experiment details
+        stop = int(max_n_steps / self.env_conf['num_steps'])
         exp_dict = {
             'name': self.exp_name,
             'run_or_experiment': 'PPO',
-            "stop": {
-                "training_iteration": int(max_n_steps / self.env_conf['num_steps'])
+            'stop': {
+                'training_iteration': stop
             },
-            "config": self.train_config,
+            'config': train_config,
             # 'num_samples': 6,
             'local_dir': './exp_res',
             'mode': 'max',
-            "verbose": 0,
-            'checkpoint_at_end': True
+            'verbose': 0,
+            'checkpoint_freq': 2
         }
-
         # Initialize ray and run
+        print(exp_dict)
         tune.run(**exp_dict)
-        plot_drop(self.exp_name, self.env_conf['num_steps'], self.env_conf['num_agents'], self.env_conf['num_rcv'])
-
-    def test(self, test_num_eps=2):
-        test_env_config = self.env_conf.copy()
-        test_env_config['mode'] = 'Test'
-        test_config = self.train_config.copy()
-        test_config["env_config"] = test_env_config
-        path = "./exp_res/{}".format(self.exp_name)
-        print(path)
-        checkpoint_path = glob.glob(path + "/PPO_Diploma_Env*/checkpoint*/checkpoint-?")[0]
-        tune.run(ppo.PPOTrainer,
-                 name='Test_' + self.exp_name,
-                 config=test_config,
-                 restore=checkpoint_path,
-                 local_dir='./exp_res',
-                 stop={"episodes_total": test_num_eps},
-                 checkpoint_at_end=True)
+        plot_drop(self.exp_name, self.env_conf['num_steps'], self.env_conf['num_agents'],
+                  self.env_conf['num_rcv'], 'Train')
         plot_drop(self.exp_name, self.env_conf['num_steps'], self.env_conf['num_agents'],
                   self.env_conf['num_rcv'], 'Test')
 
-    def viz_train_test(self):
-        plot_drop_double(self.exp_name, self.env_conf['num_steps'],
-                         self.env_conf['num_agents'], self.env_conf['num_rcv'])
 
-
-exp = Experiment()
-exp.setup_and_train()
-exp.test()
-exp.viz_train_test()
+# distribution_types = ['erlang', 'poisson', 'uniform']  # Вынести в конфиг
+distribution_types = ['erlang']  # Вынести в конфиг
+for distribution in distribution_types:
+    exp = Experiment(distribution)
+    print('Train', distribution.upper())
+    exp.setup_and_train()
+    print('Done', distribution.upper())
