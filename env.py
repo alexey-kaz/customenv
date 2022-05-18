@@ -12,7 +12,6 @@ class Diploma_Env(MultiAgentEnv):
     def __init__(self, env_config):
         super().__init__()
         self.mode = 'Train'
-        self.max_n_steps = env_config['max_n_steps']
         self.distr = env_config['distr']
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
@@ -72,21 +71,6 @@ class Diploma_Env(MultiAgentEnv):
     def reset(self):
         if not self.time:
             print('EXPERIMENT', self.exp_num)
-            # if self.exp_num == self.max_n_steps / self.num_steps // 2 + 1:
-            #     print('Switched to Test')
-            #     self.mode = 'Test'
-            #     self.drop_vec = []
-            #     self.unfinished_vec = []
-            #     self.tasks_df_main = pd.read_csv(
-            #         '{}/{}_{}_{}/{}_tasks_df.csv'.format(self.data_path, self.num_steps, self.num_agents,
-            #                                              self.num_rcv, self.mode),
-            #         converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
-            #     self.relations_main = np.load(
-            #         '{}/{}_{}_{}/{}_relations.npy'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
-            #                                               self.mode))
-            #     self.cd_info_main = pd.read_csv(
-            #         '{}/{}_{}_{}/{}_cd_info.csv'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
-            #                                             self.mode))
             if self.drop is not None:
                 path_str = './exp_res/exp_{}_{}/{}'.format(self.datetime, self.distr, self.mode)
                 path = Path(path_str)

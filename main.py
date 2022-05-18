@@ -1,6 +1,7 @@
 import os
 import sys
 
+from argparse import ArgumentParser
 import numpy as np
 import ray
 from ray import tune
@@ -110,22 +111,24 @@ class Experiment:
             'checkpoint_freq': 2
         }
         # Initialize ray and run
-        print(exp_dict)
         tune.run(**exp_dict)
         v = Viz(self.exp_name, self.env_conf['num_steps'])
         v.plot_anything('both')
 
 
 time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
-num_agents_vec = [5, 10, 15]
-num_rcv_vec = {i: np.linspace(i // 2, i, 3, dtype=int) for i in num_agents_vec}
-distribution_types = ['erlang', 'poisson', 'uniform']
-s, a, r, d = map(int, sys.argv[1:])
-num_steps = num_steps_vec[s]
-num_ag = num_agents_vec[a]
-num_rcv = num_rcv_vec[num_agents_vec[a]][r]
-distribution = distribution_types[d]
+
+parser = ArgumentParser(description='Запуск экспериментов')
+parser.add_argument('--n_steps', type=int)
+parser.add_argument('--n_agents', type=int)
+parser.add_argument('--n_rcv', type=int)
+parser.add_argument('--distr', type=str)
+args = parser.parse_args()
+
+num_steps = args.n_steps
+num_ag = args.n_agents
+num_rcv = args.n_rcv
+distribution = args.distr
 print('num_steps: {}\nnum_agents: {}\nnum_rcv: {}\ndistribution: {}'.format(num_steps, num_ag,
                                                                             num_rcv, distribution))
 max_n_steps = num_steps * 80
