@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import gym
@@ -18,7 +17,6 @@ class Diploma_Env(MultiAgentEnv):
         self.num_steps = env_config['num_steps']
         self.num_agents = env_config['num_agents']  # number of computing devices (CDs)
         self.num_rcv = env_config['num_rcv']
-        self.is_JSSP = env_config['is_JSSP']  # make True for all send times between CDs to be 0
         self.queue_rew_toggle = env_config['queue_rew_toggle']  # make True for all send times between CDs to be 0
         self.alpha, self.beta, self.gamma = env_config['alpha'], env_config['beta'], env_config['gamma']
         self.datetime = env_config['datetime']
@@ -44,7 +42,9 @@ class Diploma_Env(MultiAgentEnv):
         self.all_queue_usage = None
         self.drop = None
         self.drop_vec = []
+        self.unfinished_vec = []
         self.exp_num = 0
+        self.sample_num = 0
 
     def send_task(self, task, rcv):
         self.tasks_df.drop(self.tasks_df[(self.tasks_df.time == task.time.values[0])
@@ -71,28 +71,40 @@ class Diploma_Env(MultiAgentEnv):
 
     def reset(self):
         if not self.time:
-            # print('EXPERIMENT', self.exp_num)
-            if self.exp_num == self.max_n_steps / self.num_steps // 2 + 1:
-                print('Switched to Test')
-                self.mode = 'Test'
-                self.drop_vec = []
-                self.tasks_df_main = pd.read_csv(
-                    '{}/{}_{}_{}/{}_tasks_df.csv'.format(self.data_path, self.num_steps, self.num_agents,
-                                                         self.num_rcv, self.mode),
-                    converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
-                self.relations_main = np.load(
-                    '{}/{}_{}_{}/{}_relations.npy'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
-                                                          self.mode))
-                self.cd_info_main = pd.read_csv(
-                    '{}/{}_{}_{}/{}_cd_info.csv'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
-                                                        self.mode))
+            print('EXPERIMENT', self.exp_num)
+            # if self.exp_num == self.max_n_steps / self.num_steps // 2 + 1:
+            #     print('Switched to Test')
+            #     self.mode = 'Test'
+            #     self.drop_vec = []
+            #     self.unfinished_vec = []
+            #     self.tasks_df_main = pd.read_csv(
+            #         '{}/{}_{}_{}/{}_tasks_df.csv'.format(self.data_path, self.num_steps, self.num_agents,
+            #                                              self.num_rcv, self.mode),
+            #         converters={'run_time_vec': literal_eval, 'cpu_usage_vec': literal_eval})
+            #     self.relations_main = np.load(
+            #         '{}/{}_{}_{}/{}_relations.npy'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
+            #                                               self.mode))
+            #     self.cd_info_main = pd.read_csv(
+            #         '{}/{}_{}_{}/{}_cd_info.csv'.format(self.data_path, self.num_steps, self.num_agents, self.num_rcv,
+            #                                             self.mode))
             if self.drop is not None:
                 path_str = './exp_res/exp_{}_{}/{}'.format(self.datetime, self.distr, self.mode)
-                path_file = path_str + '/drop_{}_{}_{}.npy'.format(self.num_steps, self.num_agents, self.num_rcv)
                 path = Path(path_str)
                 path.mkdir(parents=True, exist_ok=True)
+                drop_file = path_str + '/drop_{}_{}_{}_{}.npy'.format(self.num_steps, self.num_agents,
+                                                                      self.num_rcv, self.sample_num)
+                while Path(drop_file).exists() and self.exp_num == 1:
+                    self.sample_num += 1
+                    drop_file = path_str + '/drop_{}_{}_{}_{}.npy'.format(self.num_steps, self.num_agents,
+                                                                          self.num_rcv, self.sample_num)
+                unfinished_file = path_str + '/unfinished_{}_{}_{}_{}.npy'.format(self.num_steps, self.num_agents,
+                                                                                  self.num_rcv, self.sample_num)
                 self.drop_vec.append(self.drop)
-                np.save(path_file, self.drop_vec)
+                self.unfinished_vec.append(self.tasks_df.shape[0])
+                np.save(drop_file, self.drop_vec)
+                np.save(unfinished_file, self.unfinished_vec)
+                print('не выполнено', self.tasks_df.shape[0])
+                print('drop', self.drop)
             self.drop = 0
             self.tasks_df = self.tasks_df_main.copy(deep=True)
             self.relations = self.relations_main.copy()
@@ -115,6 +127,17 @@ class Diploma_Env(MultiAgentEnv):
         # drop tasks with tll > 2
         self.tasks_df.reset_index(drop=True, inplace=True)
         for i in range(self.num_agents):
+            # finished active task on i-th agent
+            active_runtime_finished = self.tasks_df[(self.tasks_df.active == True) & (self.tasks_df.rcv == i)
+                                                    & (
+                                                                self.tasks_df.run_time + self.tasks_df.time_activated == self.time)]
+            # increase available queue and cpu of i-th agent
+            self.cd_info.queue_avail[i] += active_runtime_finished.shape[0]
+            self.cd_info.cpu_avail[i] += sum(active_runtime_finished.cpu_usage)
+            # reward for each finished active task
+            rew[i] += active_runtime_finished.shape[0] * 0.5
+            # delete finished task from dataframe
+            self.tasks_df.drop(active_runtime_finished.index, inplace=True)
             # if there are queued tasks on i-th agent
             if not self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)].empty:
                 # if several tasks were sent to i-th agent
@@ -127,16 +150,6 @@ class Diploma_Env(MultiAgentEnv):
                     for j, k in queued_i_time_not_first.iterrows():
                         tmp_free_agent = self.free_agent(i)
                         self.send_task(k.to_frame().transpose(), tmp_free_agent)
-                # finished active task on i-th agent
-                active_runtime_finished = self.tasks_df[(self.tasks_df.active == True) & (self.tasks_df.rcv == i)
-                                                        & (self.tasks_df.run_time + self.tasks_df.time_activated == self.time)]
-                # increase available queue and cpu of i-th agent
-                self.cd_info.queue_avail[i] += active_runtime_finished.shape[0]
-                self.cd_info.cpu_avail[i] += sum(active_runtime_finished.cpu_usage)
-                # reward for each finished active task
-                rew[i] += active_runtime_finished.shape[0] * 0.5
-                # delete finished task from dataframe
-                self.tasks_df.drop(active_runtime_finished.index, inplace=True)
 
                 queued_i_time = self.tasks_df[(self.tasks_df.rcv == i) & (self.tasks_df.queued == True)
                                               & (self.tasks_df.time == self.time)]

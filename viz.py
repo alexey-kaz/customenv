@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from ray.tune import ExperimentAnalysis
 
 
 def simple_exp_smooth(d, extra_periods=1, alpha=0.4):
@@ -17,16 +20,73 @@ def simple_exp_smooth(d, extra_periods=1, alpha=0.4):
     return df
 
 
-def plot_drop(exp_name, num_steps, num_agents, num_rcv, mode='Train'):
-    path = './exp_res/{}/{}/'.format(exp_name, mode)
-    path_drop = path + 'drop_{}_{}_{}'.format(num_steps, num_agents, num_rcv)
-    drop_vec = np.load(path_drop + '.npy')
-    x = [num_steps * (i + 1) for i in range(len(drop_vec))]
-    plt.plot(x, drop_vec, alpha=0.1)
-    plt.plot(x, simple_exp_smooth(drop_vec, 1, 0.3).Forecast[1:])
-    plt.title('{} шагов в итерации, {} агентов, {} принимающих'.format(num_steps, num_agents, num_rcv))
-    plt.xlabel('Число шагов')
-    plt.ylabel('Число дропов')
-    plt.legend(['Без сглаживания', 'Экспоненциальное сглаживание'])
-    plt.savefig(path_drop + '.png', dpi=300)
-    plt.cla()
+class Viz:
+    def __init__(self, exp_name, num_steps):
+        self.exp_name = exp_name
+        self.num_steps = num_steps
+
+    def plot_drop(self, mode='Train'):
+        path = './exp_res/{}/{}/'.format(self.exp_name, mode)
+        all_vec = []
+        for txt_path in Path(path).glob("drop*"):
+            print(txt_path)
+            all_vec.append(np.load(txt_path))
+        all_vec = np.asarray(all_vec)
+        maxT = np.asarray([np.max(i) for i in all_vec.T])
+        minT = np.asarray([np.min(i) for i in all_vec.T])
+        return maxT, minT
+
+    def plot_mean_reward(self):
+        path = './exp_res/{}'.format(self.exp_name)
+        analysis = ExperimentAnalysis(path)
+        all_vec = []
+        for i in analysis.trial_dataframes.values():
+            episode_reward_mean = i.episode_reward_mean.to_list()
+            all_vec.append(episode_reward_mean)
+        all_vec = np.asarray(all_vec)
+        maxT = np.asarray([np.max(i) for i in all_vec.T])
+        minT = np.asarray([np.min(i) for i in all_vec.T])
+        return maxT, minT
+
+    def plot_anything(self, type):
+        maxT, minT = None, None
+        y_label = ''
+        fig_name = ''
+        if type == 'both':
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
+            maxT, minT = self.plot_mean_reward()
+            mean_vec = (minT + maxT) / 2
+            x = [500 * (i + 1) for i in range(len(maxT))]
+            ax1.plot(x, mean_vec)
+            ax1.xlabel('Шаг итерации')
+            ax1.ylabel('Работы с истекшим директивным сроком')
+            ax1.legend(['Среднее значение', 'Вариация'])
+            maxT, minT = self.plot_mean_reward()
+            mean_vec = (minT + maxT) / 2
+            ax2.fill_between(x, minT, maxT, alpha=0.4)
+            ax2.plot(x, mean_vec)
+            ax2.xlabel('Шаг итерации')
+            ax2.ylabel('Значение целевой функции')
+            ax2.legend(['Среднее значение', 'Вариация'])
+            plt.savefig('./exp_res/{}/both_variance.png'.format(self.exp_name), dpi=300)
+            return
+        else:
+            if type == 'reward':
+                maxT, minT = self.plot_mean_reward()
+                mean_vec = (minT + maxT) / 2
+                x = [500 * (i + 1) for i in range(len(maxT))]
+                y_label = 'Значение целевой функции'
+                fig_name = 'mean_rew_variance'
+            else:
+                maxT, minT = self.plot_drop('Train')
+                mean_vec = (minT + maxT) / 2
+                x = [500 * (i + 1) for i in range(len(maxT))]
+                y_label = 'Работы с истекшим директивным сроком'
+                fig_name = 'drop_variance'
+            plt.fill_between(x, minT, maxT, alpha=0.4)
+            plt.plot(x, mean_vec)
+            plt.xlabel('Шаг итерации')
+            plt.ylabel(y_label)
+            plt.legend(['Среднее значение', 'Вариация'])
+            plt.savefig('./exp_res/{}/{}.png'.format(self.exp_name, fig_name), dpi=300)
+            plt.cla()

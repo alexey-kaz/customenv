@@ -56,11 +56,11 @@ class DataGen:
         def generate_task(last_time):
             duration = 1
             if self.distribution == 'uniform':
-                duration = np.random.uniform(0, self.avg_gap * 2 - 1) + 1
+                duration = int(np.random.uniform(0, self.avg_gap * 2 - 1) + 1)
             elif self.distribution == 'poisson':
-                duration = np.random.poisson(lam=self.avg_gap - 1) + 1
+                duration = int(np.random.poisson(lam=self.avg_gap - 1) + 1)
             elif self.distribution == 'erlang':
-                duration = erlang.rvs(0, scale=self.avg_gap - 1) + 1
+                duration = int(erlang.rvs(1, scale=self.avg_gap - 1) + 1)
             end_time = last_time + duration
             return end_time
 
@@ -78,22 +78,21 @@ class DataGen:
 
         def generate_random_schedule_list(avg_spread):
             return [
-                generate_single_resource_schedule(self.num_steps*0.8, avg_spread=avg_spread)
-                for _ in range(self.num_agents)
+                generate_single_resource_schedule(self.num_steps * 0.8, avg_spread=avg_spread)
+                for _ in self.rcv_vec
             ]
-
-        lst_sched = generate_random_schedule_list(1, 5)
+        lst_sched = generate_random_schedule_list(1)
         column_names = ['time', 'rcv']
         df = pd.DataFrame(columns=column_names)
-        for i in range(self.num_agents):
+        for i, j in enumerate(self.rcv_vec):
             tmp_df = pd.DataFrame({'time': lst_sched[i]})
-            tmp_df['rcv'] = i
+            tmp_df['rcv'] = j
             df = pd.concat([df, tmp_df], ignore_index=True)
         df['life_time'] = np.random.randint(self.max_run_time, self.num_steps, size=df.shape[0])
         df['life_time_global'] = df['time'] + df['life_time']
-        df['run_time_vec'] = np.random.randint(1, self.max_run_time, size=(df.shape[0], 5)).tolist()
+        df['run_time_vec'] = np.random.randint(1, self.max_run_time, size=(df.shape[0], self.num_agents)).tolist()
         df['run_time'] = df.apply(lambda x: x.get(key='run_time_vec')[x.get('rcv')], axis=1)
-        df['cpu_usage_vec'] = np.random.randint(1, self.max_cpu_usage, size=(df.shape[0], 5)).tolist()
+        df['cpu_usage_vec'] = np.random.randint(1, self.max_cpu_usage, size=(df.shape[0], self.num_agents)).tolist()
         df['cpu_usage'] = df.apply(lambda x: x.get(key='cpu_usage_vec')[x.get('rcv')], axis=1)
         df = df.sort_values(by=['time', 'rcv'], ignore_index=True)
         df['snd'] = -1
@@ -109,7 +108,7 @@ if not os.path.exists('./data'):
 num_agents_vec = [5, 10, 15]
 num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
 
-for distr in ['uniform']:
+for distr in ['erlang', 'poisson', 'uniform']:
     if not os.path.exists('./data/{}'.format(distr)):
         os.makedirs('./data/{}'.format(distr))
     for i in num_steps_vec:
@@ -120,7 +119,7 @@ for distr in ['uniform']:
                 rcv_vec = np.random.choice(range(j), k, replace=False)
                 for m in ['Train', 'Test']:
                     datagen = DataGen(rcv_vec, i, j, i / 10, 5, distr)
-                    tasks_df = datagen.gen_tasks_random()
+                    tasks_df = datagen.gen_tasks_distribution()
                     relations = datagen.gen_relations()
                     cd_info = datagen.gen_cd_info()
                     tasks_df.to_csv(r'./data/{}/{}_{}_{}/{}_tasks_df.csv'.format(distr, i, j, k, m), index=False)

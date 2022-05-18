@@ -1,4 +1,3 @@
-import glob
 import os
 import sys
 
@@ -7,32 +6,21 @@ import ray
 from ray import tune
 from ray.rllib.utils import try_import_tf
 from ray.tune.registry import register_env
-from ray.rllib.agents import ppo
 from datetime import datetime
 
 # Import environment definition
 from env import Diploma_Env
-from viz import plot_drop
+from viz import Viz
 
 ray.init()
 tf = try_import_tf()
-n_workers = 0
-# max_n_steps = 2000
-time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
-num_agents_vec = [5, 15]
-num_rcv_vec = {i: np.linspace(i // 2, i, 3, dtype=int) for i in num_agents_vec}
-s, a, r = map(int, sys.argv[1:])
-print('num_steps: {}\nnum_agents: {}\nnum_rcv: {}'.format(num_steps_vec[a], num_agents_vec[s],
-                                                          num_rcv_vec[num_agents_vec[s]][r]))
-max_n_steps = num_steps_vec[a] * 20
 
 
 class Experiment:
-    def __init__(self, distr='uniform'):
-        self.distr = distr
+    def __init__(self):
+        self.distr = distribution
         self.env_name = 'Diploma_Env'
-        self.exp_name = 'exp_{}_{}'.format(time, distr)
+        self.exp_name = 'exp_{}_{}'.format(time, distribution)
         self.env_conf = None
         self.multi_env = None
 
@@ -40,12 +28,10 @@ class Experiment:
     def setup_and_train(self):
 
         self.env_conf = {
-            'max_n_steps': max_n_steps,
             'distr': self.distr,
-            'num_steps': num_steps_vec[a],
-            'num_agents': num_agents_vec[s],
-            'num_rcv': num_rcv_vec[num_agents_vec[s]][r],
-            'is_JSSP': False,
+            'num_steps': num_steps,
+            'num_agents': num_ag,
+            'num_rcv': num_rcv,
             'queue_rew_toggle': True,
             'alpha': 0.3,
             'beta': 0.3,
@@ -79,12 +65,10 @@ class Experiment:
 
         # Define configuration with hyperparam and training details
         train_config = {
-            # 'num_training_iterations': 20,
-            'horizon': tune.grid_search([32, 1688, 3344, 5000]),
             'use_critic': True,
-            'lambda': tune.grid_search([0.9, 0.95, 1]),
-            'kl_coeff': tune.grid_search([0.3, 0.65, 1]),
-            'kl_target': tune.grid_search([0.003, 0.01, 0.02, 0.03]),
+            'lambda': 0.9,
+            'kl_coeff': 0.65,
+            'kl_target': 0.01,
             'num_workers': 1,
             'shuffle_sequences': True,
             'num_cpus_per_worker': 3,
@@ -102,7 +86,7 @@ class Experiment:
                 'policy_mapping_fn': policy_mapping_fn,
             },
 
-            'clip_param': tune.grid_search([0.1, 0.2, 0.3]),
+            'clip_param': 0.2,
 
             'simple_optimizer': True,
 
@@ -119,7 +103,7 @@ class Experiment:
                 'training_iteration': stop
             },
             'config': train_config,
-            # 'num_samples': 6,
+            'num_samples': 2,
             'local_dir': './exp_res',
             'mode': 'max',
             'verbose': 0,
@@ -128,16 +112,25 @@ class Experiment:
         # Initialize ray and run
         print(exp_dict)
         tune.run(**exp_dict)
-        plot_drop(self.exp_name, self.env_conf['num_steps'], self.env_conf['num_agents'],
-                  self.env_conf['num_rcv'], 'Train')
-        plot_drop(self.exp_name, self.env_conf['num_steps'], self.env_conf['num_agents'],
-                  self.env_conf['num_rcv'], 'Test')
+        v = Viz(self.exp_name, self.env_conf['num_steps'])
+        v.plot_anything('both')
 
 
-# distribution_types = ['erlang', 'poisson', 'uniform']  # Вынести в конфиг
-distribution_types = ['erlang']  # Вынести в конфиг
-for distribution in distribution_types:
-    exp = Experiment(distribution)
-    print('Train', distribution.upper())
-    exp.setup_and_train()
-    print('Done', distribution.upper())
+time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+num_steps_vec = [250 * 2 ** (i + 1) for i in range(3)]
+num_agents_vec = [5, 10, 15]
+num_rcv_vec = {i: np.linspace(i // 2, i, 3, dtype=int) for i in num_agents_vec}
+distribution_types = ['erlang', 'poisson', 'uniform']
+s, a, r, d = map(int, sys.argv[1:])
+num_steps = num_steps_vec[s]
+num_ag = num_agents_vec[a]
+num_rcv = num_rcv_vec[num_agents_vec[a]][r]
+distribution = distribution_types[d]
+print('num_steps: {}\nnum_agents: {}\nnum_rcv: {}\ndistribution: {}'.format(num_steps, num_ag,
+                                                                            num_rcv, distribution))
+max_n_steps = num_steps * 80
+
+exp = Experiment()
+print('Train', distribution.upper())
+exp.setup_and_train()
+print('Done', distribution.upper())
