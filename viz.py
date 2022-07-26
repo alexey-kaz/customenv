@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from ray.tune import ExperimentAnalysis
 
 
@@ -29,11 +30,10 @@ class Viz:
         path = './exp_res/{}/{}/'.format(self.exp_name, mode)
         all_vec = []
         for txt_path in Path(path).glob("drop*"):
-            print(txt_path)
             all_vec.append(np.load(txt_path))
         all_vec = np.asarray(all_vec)
-        maxT = np.asarray([np.max(i) for i in all_vec.T])
-        minT = np.asarray([np.min(i) for i in all_vec.T])
+        maxT = np.asarray([np.max(i) for i in all_vec.T]) / self.num_steps * 0.9
+        minT = np.asarray([np.min(i) for i in all_vec.T]) / self.num_steps * 0.9
         return maxT, minT
 
     def plot_mean_reward(self):
@@ -48,45 +48,52 @@ class Viz:
         minT = np.asarray([np.min(i) for i in all_vec.T])
         return maxT, minT
 
-    def plot_anything(self, type):
-        maxT, minT = None, None
-        y_label = ''
-        fig_name = ''
-        if type == 'both':
+    def plot_anything(self, type_plot):
+        if type_plot == 'both':
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
-            maxT, minT = self.plot_mean_reward()
+            maxT, minT = self.plot_drop()
             mean_vec = (minT + maxT) / 2
-            x = [500 * (i + 1) for i in range(len(maxT))]
+            x = [(i + 1) for i in range(len(maxT))]
+            ax1.fill_between(x, minT, maxT, alpha=0.4)
             ax1.plot(x, mean_vec)
-            ax1.xlabel('Шаг итерации')
-            ax1.ylabel('Работы с истекшим директивным сроком')
+            ax1.set_xlabel('Эпизод')
+            ax1.set_ylabel('Отношение просроченных заданий к общему числу заданий')
             ax1.legend(['Среднее значение', 'Вариация'])
+            ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
             maxT, minT = self.plot_mean_reward()
             mean_vec = (minT + maxT) / 2
             ax2.fill_between(x, minT, maxT, alpha=0.4)
             ax2.plot(x, mean_vec)
-            ax2.xlabel('Шаг итерации')
-            ax2.ylabel('Значение целевой функции')
+            ax2.set_xlabel('Эпизод')
+            ax2.set_ylabel('Значение целевой функции')
             ax2.legend(['Среднее значение', 'Вариация'])
+            ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
             plt.savefig('./exp_res/{}/both_variance.png'.format(self.exp_name), dpi=300)
-            return
         else:
-            if type == 'reward':
+            if type_plot == 'reward':
                 maxT, minT = self.plot_mean_reward()
                 mean_vec = (minT + maxT) / 2
-                x = [500 * (i + 1) for i in range(len(maxT))]
+                x = [(i + 1) for i in range(len(maxT))]
                 y_label = 'Значение целевой функции'
                 fig_name = 'mean_rew_variance'
             else:
                 maxT, minT = self.plot_drop('Train')
                 mean_vec = (minT + maxT) / 2
-                x = [500 * (i + 1) for i in range(len(maxT))]
-                y_label = 'Работы с истекшим директивным сроком'
+                x = [(i + 1) for i in range(len(maxT))]
+                y_label = 'Отношение просроченных заданий к общему числу заданий'
                 fig_name = 'drop_variance'
-            plt.fill_between(x, minT, maxT, alpha=0.4)
-            plt.plot(x, mean_vec)
-            plt.xlabel('Шаг итерации')
-            plt.ylabel(y_label)
-            plt.legend(['Среднее значение', 'Вариация'])
-            plt.savefig('./exp_res/{}/{}.png'.format(self.exp_name, fig_name), dpi=300)
+            fig, ax = plt.subplots()
+            ax.fill_between(x, minT, maxT, alpha=0.4)
+            ax.plot(x, mean_vec)
+            ax.xlabel('Эпизод')
+            ax.ylabel(y_label)
+            ax.legend(['Среднее значение', 'Вариация'])
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+            ax.savefig('./exp_res/{}/{}.png'.format(self.exp_name, fig_name), dpi=300)
             plt.cla()
+
+    def plot_all(self):
+        self.plot_anything('both')
+        self.plot_anything('reward')
+        self.plot_anything('mean')
+

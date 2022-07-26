@@ -24,7 +24,7 @@ redis
 pandas
 plotly==2.4.0
 tabulate
-tensorflow
+# tensorflow
 awscli==1.16.309
 torch
 pytz
