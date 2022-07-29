@@ -84,10 +84,7 @@ class Experiment:
                 tmp_finished = self.exp_finished[trial_id][-num:]
                 div_tmp_finished = max(tmp_finished) / min(tmp_finished) if min(tmp_finished) else 0
                 print('finished', tmp_finished, max(tmp_finished), min(tmp_finished), abs(1 - div_tmp_finished))
-                # return (abs(1 - div_tmp_finished) <= 1 and min(tmp_finished) > 0.9) or min(tmp_finished) > 0.94
-                return min(tmp_finished) > 0.9
-                # return (abs(1 - div_tmp_finished) <= 1 and min(tmp_finished) > 0.7) \
-                #     or result['training_iteration'] == num_episodes
+                return any([i > 0.9 for i in tmp_finished])
 
         def on_episode_end(info):
             if info['env'] in self.exp_drops.keys():
