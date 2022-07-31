@@ -97,7 +97,7 @@ for distr in ['poisson', 'uniform']:
                 if not os.path.exists('./data/{}/{}_{}_{}'.format(distr, i, j, k)):
                     os.makedirs('./data/{}/{}_{}_{}'.format(distr, i, j, k))
                 rcv_vec = np.random.choice(range(j), k, replace=False)
-                for m in ['Train', 'Test']:
+                for m in ['Train']:
                     datagen = DataGen(rcv_vec, i, j, i // 20, 2, distr)
                     tasks_df = datagen.gen_tasks_distribution()
                     relations = datagen.gen_relations()
