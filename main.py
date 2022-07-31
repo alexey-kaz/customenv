@@ -8,10 +8,6 @@ from datetime import datetime
 
 # Import environment definition
 from env import Diploma_Env
-from viz import Viz
-
-# from ray.rllib.utils import try_import_torch
-# torch = try_import_torch()
 
 from ray.rllib.utils import try_import_tf
 
@@ -145,8 +141,6 @@ class Experiment:
         }
         # Initialize ray and run
         tune.run(**exp_dict)
-        v = Viz(self.exp_name, self.env_conf['num_steps'])
-        v.plot_anything('both')
 
 
 time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')

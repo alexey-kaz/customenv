@@ -30,7 +30,6 @@ def full_extent(ax, pad=0.0):
     ax.figure.canvas.draw()
     items = ax.get_xticklabels() + ax.get_yticklabels()
     items += [ax, ax.title, ax.xaxis.label, ax.yaxis.label]
-    # items += [ax, ax.title]
     bbox = Bbox.union([item.get_window_extent() for item in items])
 
     return bbox.expanded(1.0 + pad, 1.0 + pad)
@@ -123,7 +122,7 @@ for path in [path_poisson, path_uniform]:
             ax3.set_ylabel('Objective function')
             ax3.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-            plots_path = str(num_edges_dirs).replace('{}/'.format(data_dir), '').split('/')
+            plots_path = str(num_edges_dirs).split('/')[1:]
             if eval('{} - {}'.format(plots_path[1], plots_path[2])) <= 1:
                 extent_ax1 = full_extent(ax1).transformed(fig.dpi_scale_trans.inverted())
                 fig.savefig('./{}/{}_{}_{}_fin.png'.format(save_dir, *plots_path),
