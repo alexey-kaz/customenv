@@ -145,7 +145,7 @@ class Experiment:
 
 time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-parser = ArgumentParser(description='Запуск экспериментов')
+parser = ArgumentParser(description='Running experiments')
 parser.add_argument('--n_steps', type=int)
 parser.add_argument('--n_agents', type=int)
 parser.add_argument('--n_rcv', type=int)

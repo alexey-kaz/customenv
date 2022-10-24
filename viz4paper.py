@@ -54,7 +54,7 @@ path_poisson = 'poisson'
 path_uniform = 'uniform/'
 plt.rcParams.update({'font.size': 22, 'figure.facecolor': (1, 1, 1, 1)})
 
-parser = ArgumentParser(description='Визуализация результатов')
+parser = ArgumentParser(description='Result Visualization')
 parser.add_argument('--data_dir', type=str)
 parser.add_argument('--save_dir', type=str)
 args = parser.parse_args()
@@ -68,11 +68,8 @@ p = 0
 for path in [path_poisson, path_uniform]:
     dirs_distr = [x for x in Path('./{}/{}'.format(data_dir, path)).iterdir() if x.is_dir()]
     for num_agents_dirs in dirs_distr:
-        # print(num_agents_dirs)
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(54, 12))
-        # fig, ax1 = plt.subplots(1, 1, figsize=(18, 12))
         dirs_edge = [x for x in Path(num_agents_dirs).iterdir() if x.is_dir()]
-        # print(sorted(dirs_edge))
         for num_edges_dirs in sorted(dirs_edge, key=lambda x: int(str(x).split('/')[3])):
             all_vec_drop = []
             all_vec_fin = []

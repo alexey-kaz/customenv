@@ -56,17 +56,17 @@ class Viz:
             x = [(i + 1) for i in range(len(maxT))]
             ax1.fill_between(x, minT, maxT, alpha=0.4)
             ax1.plot(x, mean_vec)
-            ax1.set_xlabel('Эпизод')
-            ax1.set_ylabel('Отношение просроченных заданий к общему числу заданий')
-            ax1.legend(['Среднее значение', 'Вариация'])
+            ax1.set_xlabel('Episode')
+            ax1.set_ylabel('Dropped tasks ratio')
+            ax1.legend(['Mean', 'Variance'])
             ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
             maxT, minT = self.plot_mean_reward()
             mean_vec = (minT + maxT) / 2
             ax2.fill_between(x, minT, maxT, alpha=0.4)
             ax2.plot(x, mean_vec)
-            ax2.set_xlabel('Эпизод')
-            ax2.set_ylabel('Значение целевой функции')
-            ax2.legend(['Среднее значение', 'Вариация'])
+            ax2.set_xlabel('Episode')
+            ax2.set_ylabel('Objective function value')
+            ax2.legend(['Mean', 'Variance'])
             ax2.xaxis.set_major_locator(MaxNLocator(integer=True))
             plt.savefig('./exp_res/{}/both_variance.png'.format(self.exp_name), dpi=300)
         else:
@@ -74,20 +74,20 @@ class Viz:
                 maxT, minT = self.plot_mean_reward()
                 mean_vec = (minT + maxT) / 2
                 x = [(i + 1) for i in range(len(maxT))]
-                y_label = 'Значение целевой функции'
+                y_label = 'Objective function value'
                 fig_name = 'mean_rew_variance'
             else:
                 maxT, minT = self.plot_drop('Train')
                 mean_vec = (minT + maxT) / 2
                 x = [(i + 1) for i in range(len(maxT))]
-                y_label = 'Отношение просроченных заданий к общему числу заданий'
+                y_label = 'Dropped tasks ratio'
                 fig_name = 'drop_variance'
             fig, ax = plt.subplots()
             ax.fill_between(x, minT, maxT, alpha=0.4)
             ax.plot(x, mean_vec)
-            ax.xlabel('Эпизод')
+            ax.xlabel('Episode')
             ax.ylabel(y_label)
-            ax.legend(['Среднее значение', 'Вариация'])
+            ax.legend(['Mean', 'Variance'])
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             ax.savefig('./exp_res/{}/{}.png'.format(self.exp_name, fig_name), dpi=300)
             plt.cla()
